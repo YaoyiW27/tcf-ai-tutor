@@ -26,6 +26,10 @@ Secondary: Use it myself to prepare for TCF Canada.
 ## Status
 
 - [x] Project scaffold
+  - [x] Schema design ([docs/schema-v1.md](docs/schema-v1.md))
+  - [x] Architecture sketch ([docs/architecture-v1.md](docs/architecture-v1.md))
+  - [x] Frontend scaffold (Next.js + Tailwind + shadcn/ui)
+  - [x] Backend scaffold (FastAPI + `/health`)
 - [ ] Phase 1: Schema design & first agent
 - [ ] Phase 2: Writing AI Grader
 - [ ] Phase 3: Speaking Voice Agent
@@ -33,20 +37,64 @@ Secondary: Use it myself to prepare for TCF Canada.
 - [ ] Phase 5: Observability (Langfuse + OpenTelemetry)
 - [ ] Phase 6: Containerization & deployment
 
-## Stack (planned)
+## Repository layout
 
-**AI:**
+```
+tcf-ai-tutor/
+├── frontend/         # Next.js 16 (App Router) + Tailwind v4 + shadcn/ui
+├── backend/          # FastAPI service (Python 3.11)
+├── docs/             # Schema & architecture notes
+├── CLAUDE.md         # Guidance for Claude Code
+└── README.md
+```
+
+## Quickstart
+
+### Backend (FastAPI)
+
+```bash
+cd backend
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+# verify:
+curl http://localhost:8000/health   # -> {"status":"ok"}
+```
+
+See [backend/README.md](backend/README.md) for details.
+
+### Frontend (Next.js)
+
+```bash
+cd frontend
+npm install
+npm run dev
+# open http://localhost:3000
+```
+
+## Stack
+
+**Frontend** (scaffolded):
+- Next.js 16 (App Router, Turbopack) + React 19 + TypeScript
+- Tailwind CSS v4
+- shadcn/ui (Radix base, Nova preset)
+
+**Backend** (scaffolded):
+- Python 3.11, FastAPI, uvicorn[standard]
+
+**AI** (planned):
 - LangGraph — multi-agent orchestration
 - Whisper — speech-to-text
 - OpenAI / Anthropic API — LLM backbone
 
-**Observability:**
+**Observability** (planned):
 - Langfuse — LLM-specific tracing (prompts, costs, latency)
 - OpenTelemetry — distributed tracing across services
 
-**Infrastructure:**
+**Infrastructure** (planned):
 - Docker — containerization
-- TBD: cloud deployment, frontend, database
+- TBD: cloud deployment, database
 
 ## Positioning
 
