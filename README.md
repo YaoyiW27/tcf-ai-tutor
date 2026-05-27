@@ -30,6 +30,7 @@ Secondary: Use it myself to prepare for TCF Canada.
   - [x] Architecture sketch ([docs/architecture-v1.md](docs/architecture-v1.md))
   - [x] Frontend scaffold (Next.js + Tailwind + shadcn/ui)
   - [x] Backend scaffold (FastAPI + `/health`)
+  - [x] Frontend-backend integration (CORS + env config)
 - [ ] Phase 1: Schema design & first agent
 - [ ] Phase 2: Writing AI Grader
 - [ ] Phase 3: Speaking Voice Agent
