@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import questions
+from app.routers import answers, questions
 
 app = FastAPI(title="TCF AI Tutor Backend")
 
@@ -13,6 +13,7 @@ app.add_middleware(
 )
 
 app.include_router(questions.router)
+app.include_router(answers.router)
 
 
 @app.get("/health")
