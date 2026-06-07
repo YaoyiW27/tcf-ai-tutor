@@ -29,11 +29,18 @@
 - Seed script (idempotent) + read-only GET /questions endpoint
 - Verified end-to-end: DB → async session → FastAPI → JSON (3 TCF Writing tasks, A2/B1/B2)
 
+## 2026-06-06
+- POST /answers: stores writing submissions using a dev user via get-or-create, with status set to submitted.
+- AI grader: implemented Claude structured output using messages.parse + Pydantic, with model claude-sonnet-4-6
+- Scoring dimensions: task_fulfillment, coherence, vocabulary, and grammar on a 0–6 scale, plus estimated_level (CEFR), corrections, and overall_comment. estimated_level is stored inside the dimension_scores JSONB field without changing the schema.
+- Added POST /answers/{id}/grade and GET /answers/{id}/feedback. Re-grading returns 409; missing API key returns 503; external API errors return 502.
+- End-to-end validation passed: submit → grade → read feedback. First real AI grading output received: B2, total score 5.4.
+- Known issue: the grader occasionally “corrects” French that is already correct, such as misclassifying the imparfait de politesse as an error. This will be addressed later during the LangGraph hardening phase.
+
 ## Next up
-- Phase 2 kickoff: Writing AI Grader
-  - POST /answers (store a user's writing submission)
-  - First LangGraph agent: grade a submission, write result to ai_feedback
-  - Decide grading dimensions (e.g. grammar / vocabulary / coherence / task fulfillment)
+- Phase 2 cont. — Step C: refactor the single-call grader into a LangGraph multi-agent graph
+  - Decompose grading into focused nodes (per-dimension scoring + a skeptical correction-checker)
+  - Goal: fix over-correction (only flag real errors), make each step traceable for the later Langfuse phase
 
 ## Notes
 - Two-terminal workflow established: one for backend (uvicorn), one for everything else.
