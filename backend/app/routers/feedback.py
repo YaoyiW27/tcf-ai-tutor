@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import grader
+from app import graph
 from app.db import get_session
 from app.models import AIFeedback, Answer, Question
 
@@ -87,7 +87,7 @@ async def grade_answer(
     question = await session.get(Question, answer.question_id)
 
     try:
-        grade = await grader.grade_essay(question, answer.content)
+        grade = await graph.run_grader(question, answer.content)
     except RuntimeError:
         raise HTTPException(status_code=503, detail="Grader not configured (no API key)")
     except anthropic.APIError as exc:
