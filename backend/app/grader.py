@@ -1,14 +1,21 @@
 """AI grader for TCF Writing essays.
 
-A single Claude call takes the question (prompt + instructions + the
-expected word-count band) and the candidate's essay, and returns a
-structured rubric: four dimension scores on a 0–6 band, an estimated
-CEFR level, a written comment, and concrete corrections.
+Grading is split into three independent Claude calls so that *finding*
+candidate errors and *judging* whether they are real errors are separate
+steps. This fixes the classic single-pass failure mode where the model
+"corrects" French that was already correct (e.g. a politeness ``imparfait``)
+in the same breath as scoring.
 
-This module is pure scoring — no database access. The router owns
-persistence into the ``ai_feedback`` table. Structured output is enforced
-with ``messages.parse(output_format=...)`` so we get a validated
-``EssayGrade`` back rather than free-form text we'd have to parse.
+The steps (orchestrated by :mod:`app.graph`):
+
+- :func:`score_essay`  — the four rubric dimensions + CEFR level + comment.
+- :func:`find_errors`  — over-collect candidate language errors.
+- :func:`verify_errors` — keep only the candidates that are genuine errors.
+
+This module is pure scoring — no database access, no graph wiring. Each
+call uses ``messages.parse(output_format=...)`` so we get a validated
+Pydantic object back rather than free-form text. The router owns
+persistence; :mod:`app.graph` owns the pipeline.
 """
 
 from typing import Literal
@@ -25,11 +32,15 @@ CEFRLevel = Literal["A1", "A2", "B1", "B2", "C1", "C2"]
 
 MODEL = "claude-sonnet-4-6"
 
-GRADER_SYSTEM = """You are an experienced TCF Canada (Test de connaissance du \
-français) examiner grading the "Expression écrite" (Writing) section.
+_EXAMINER = """You are an experienced TCF Canada (Test de connaissance du \
+français) examiner grading the "Expression écrite" (Writing) section."""
 
-Grade the candidate's essay against the task it was given. Score each of \
-the four dimensions on a 0–6 band (0 = not addressed, 6 = excellent), using \
+SCORE_SYSTEM = (
+    _EXAMINER
+    + """
+
+Score the candidate's essay against the task it was given. Rate each of the \
+four dimensions on a 0–6 band (0 = not addressed, 6 = excellent), using \
 half-points where appropriate:
 
 - task_fulfillment: Does the essay do what the task asked (content, format, \
@@ -38,13 +49,51 @@ half-points where appropriate:
 - vocabulary: Range, precision, and appropriateness of word choice.
 - grammar: Accuracy of syntax, agreement, tense, and spelling.
 
-Then estimate the overall CEFR level (A1–C2) the essay demonstrates, write a \
-short overall comment (2–4 sentences, in French, addressed to the learner), \
-and list the most important concrete corrections. For each correction quote \
-the original French excerpt, give the corrected version, and explain the fix \
-briefly in French. Return at most 8 corrections, prioritising the ones that \
-matter most. If the essay is strong, it is fine to return few or no \
-corrections."""
+Then estimate the overall CEFR level (A1–C2) the essay demonstrates and write \
+a short overall comment (2–4 sentences, in French, addressed to the learner).
+
+Do NOT list corrections or rewrite the essay here — scoring only."""
+)
+
+FIND_ERRORS_SYSTEM = (
+    _EXAMINER
+    + """
+
+Read the candidate's essay and collect every *candidate* language error you \
+notice: grammar, agreement, tense, spelling, wrong word choice, or awkward \
+constructions. For each one return:
+
+- original: the exact French excerpt from the essay,
+- correction: the corrected French version,
+- explanation: a brief explanation of the fix, in French.
+
+Be generous and over-collect — when in doubt, include it. A later reviewer \
+will filter out anything that is not a genuine error, so recall matters more \
+than precision at this stage. Return up to 15 candidates."""
+)
+
+VERIFY_ERRORS_SYSTEM = (
+    _EXAMINER
+    + """
+
+You are reviewing a list of *candidate* corrections that another examiner \
+proposed for a French essay. For each candidate, decide whether it flags a \
+genuine error, or whether the original French was actually correct or \
+acceptable.
+
+Set is_genuine_error = true ONLY if the original is truly wrong (grammar, \
+agreement, tense, spelling, or a real misuse). Set it to false if the \
+original is correct or acceptable French, including:
+
+- a politeness or hypothetical imparfait / conditionnel (e.g. "je voulais", \
+  "je voudrais"),
+- valid register or stylistic variation,
+- a "correction" that is merely a stylistic rewrite or a matter of taste.
+
+Do NOT make pure stylistic rewrites. If you are unsure whether something is a \
+real error, set is_genuine_error = false. Return one verdict per candidate, \
+preserving its original / correction / explanation text."""
+)
 
 
 class Correction(BaseModel):
@@ -55,8 +104,43 @@ class Correction(BaseModel):
     explanation: str = Field(description="Brief explanation of the fix, in French.")
 
 
+class EssayScore(BaseModel):
+    """Scoring-only output of the ``score`` step (no corrections)."""
+
+    task_fulfillment: float = Field(description="Task fulfillment score, 0–6.")
+    coherence: float = Field(description="Coherence/organisation score, 0–6.")
+    vocabulary: float = Field(description="Vocabulary score, 0–6.")
+    grammar: float = Field(description="Grammar/accuracy score, 0–6.")
+    estimated_level: CEFRLevel
+    overall_comment: str
+
+
+class DraftCorrections(BaseModel):
+    """Candidate errors produced by the ``find_errors`` step."""
+
+    corrections: list[Correction]
+
+
+class CorrectionVerdict(BaseModel):
+    """One candidate correction plus the reviewer's verdict on it."""
+
+    original: str
+    correction: str
+    explanation: str
+    is_genuine_error: bool = Field(
+        description="True only if the original is genuinely wrong, not "
+        "acceptable or stylistic French."
+    )
+
+
+class VerificationResult(BaseModel):
+    """The ``verify_errors`` step's per-candidate verdicts."""
+
+    items: list[CorrectionVerdict]
+
+
 class EssayGrade(BaseModel):
-    """Structured grade returned by Claude (one essay)."""
+    """Final assembled grade for one essay (what the API returns)."""
 
     task_fulfillment: float = Field(description="Task fulfillment score, 0–6.")
     coherence: float = Field(description="Coherence/organisation score, 0–6.")
@@ -80,7 +164,20 @@ def _get_client() -> AsyncAnthropic:
     return _client
 
 
-def _build_user_message(question: Question, content: str) -> str:
+async def _structured_call(system: str, user: str, output_format: type[BaseModel]):
+    """One structured Claude call, returning the validated Pydantic object."""
+    response = await _get_client().messages.parse(
+        model=MODEL,
+        max_tokens=8000,
+        thinking={"type": "adaptive"},
+        system=system,
+        messages=[{"role": "user", "content": user}],
+        output_format=output_format,
+    )
+    return response.parsed_output
+
+
+def _build_task_message(question: Question, content: str) -> str:
     return (
         f"## Task (Tâche {question.task_number})\n"
         f"{question.prompt}\n\n"
@@ -91,14 +188,47 @@ def _build_user_message(question: Question, content: str) -> str:
     )
 
 
-async def grade_essay(question: Question, content: str) -> EssayGrade:
-    """Call Claude once and return a validated :class:`EssayGrade`."""
-    response = await _get_client().messages.parse(
-        model=MODEL,
-        max_tokens=8000,
-        thinking={"type": "adaptive"},
-        system=GRADER_SYSTEM,
-        messages=[{"role": "user", "content": _build_user_message(question, content)}],
-        output_format=EssayGrade,
+async def score_essay(question: Question, content: str) -> EssayScore:
+    """Score the four dimensions + CEFR level + comment. No corrections."""
+    return await _structured_call(
+        SCORE_SYSTEM, _build_task_message(question, content), EssayScore
     )
-    return response.parsed_output
+
+
+async def find_errors(question: Question, content: str) -> list[Correction]:
+    """Over-collect candidate language errors (recall over precision)."""
+    draft: DraftCorrections = await _structured_call(
+        FIND_ERRORS_SYSTEM, _build_task_message(question, content), DraftCorrections
+    )
+    return draft.corrections
+
+
+async def verify_errors(
+    content: str, draft: list[Correction]
+) -> list[Correction]:
+    """Keep only candidates that are genuine errors; drop the rest."""
+    if not draft:
+        return []
+
+    candidates = "\n".join(
+        f"{i}. original: {c.original!r}\n"
+        f"   correction: {c.correction!r}\n"
+        f"   explanation: {c.explanation!r}"
+        for i, c in enumerate(draft, start=1)
+    )
+    user = (
+        f"## Candidate's essay\n{content}\n\n"
+        f"## Candidate corrections to review\n{candidates}"
+    )
+    verdicts: VerificationResult = await _structured_call(
+        VERIFY_ERRORS_SYSTEM, user, VerificationResult
+    )
+    return [
+        Correction(
+            original=v.original,
+            correction=v.correction,
+            explanation=v.explanation,
+        )
+        for v in verdicts.items
+        if v.is_genuine_error
+    ]
