@@ -37,6 +37,14 @@
 - End-to-end validation passed: submit → grade → read feedback. First real AI grading output received: B2, total score 5.4.
 - Known issue: the grader occasionally “corrects” French that is already correct, such as misclassifying the imparfait de politesse as an error. This will be addressed later during the LangGraph hardening phase.
 
+## 2026-06-08
+- LangGraph multi-node grading pipeline: START → score → find_errors → verify_errors → assemble → END
+- 3 focused Claude calls (sonnet-4-6, serial) + pure-Python assemble; run_grader interface unchanged
+- verify_errors fixes over-correction: keeps genuine errors, drops polite imparfait / stylistic rewrites; "unsure → not an error"
+- Verified: previously mis-corrected "je voulais" (imparfait de politesse) now left intact; only a real error (vocative comma) flagged
+- Phase 2 (Writing grader) functionally complete
+- Tradeoff noted: serial calls ≈ 10-15s/grade; score+find_errors are parallelizable later if needed
+
 ## Next up
 - Phase 2 cont. — Step C: refactor the single-call grader into a LangGraph multi-agent graph
   - Decompose grading into focused nodes (per-dimension scoring + a skeptical correction-checker)
