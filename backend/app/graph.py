@@ -126,8 +126,13 @@ async def verify_errors_node(state: GraphState) -> dict:
 
 
 def assemble_node(state: GraphState) -> dict:
-    """Combine the pieces into the final EssayGrade (no Claude call)."""
+    """Combine the pieces into the final EssayGrade (no Claude call).
+
+    The NCLC level + écrite band are a pure-Python lookup from the model's
+    estimated_level — no extra LLM call.
+    """
     scores = state["dimension_scores"]
+    nclc_level, ecrit_band = grader.nclc_band_for(state["estimated_level"])
     result = EssayGrade(
         task_fulfillment=scores["task_fulfillment"],
         coherence=scores["coherence"],
@@ -136,6 +141,8 @@ def assemble_node(state: GraphState) -> dict:
         estimated_level=state["estimated_level"],
         overall_comment=state["overall_comment"],
         corrections=state["verified_corrections"],
+        nclc_level=nclc_level,
+        ecrit_band=ecrit_band,
     )
     return {"result": result}
 

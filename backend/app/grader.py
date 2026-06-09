@@ -30,6 +30,30 @@ from app.models import Question
 # which structured outputs enforces.
 CEFRLevel = Literal["A1", "A2", "B1", "B2", "C1", "C2"]
 
+# Official TCF Canada "Expression écrite" bands per CEFR level, from the NCLC
+# table. This is PURE DATA, never produced by the model: the LLM only judges
+# estimated_level, and the band is looked up from it in Python (see the
+# `assemble` node in app.graph and `_serialize` in app.routers.feedback). This
+# keeps us from ever emitting a fake precise score — we report the level plus
+# its official écrite range. Maps level -> (nclc_level, ecrit_band).
+NCLC_ECRIT_BANDS: dict[str, tuple[str, str]] = {
+    "C2": ("NCLC 10+", "16–20"),
+    "C1": ("NCLC 9", "14–15"),
+    "B2": ("NCLC 7", "10–11"),
+    "B1": ("NCLC 6", "7–9"),
+    "A2": ("NCLC 5", "6"),
+    "A1": ("NCLC 4", "below 6"),
+}
+
+
+def nclc_band_for(level: str) -> tuple[str | None, str | None]:
+    """Return ``(nclc_level, ecrit_band)`` for a CEFR level — pure lookup.
+
+    Falls back to ``(None, None)`` for an unknown level so callers can show
+    just the level. No LLM involved.
+    """
+    return NCLC_ECRIT_BANDS.get(level, (None, None))
+
 MODEL = "claude-sonnet-4-6"
 
 _EXAMINER = """You are an experienced TCF Canada (Test de connaissance du \
@@ -141,7 +165,12 @@ class VerificationResult(BaseModel):
 
 
 class EssayGrade(BaseModel):
-    """Final assembled grade for one essay (what the API returns)."""
+    """Final assembled grade for one essay (what the API returns).
+
+    ``nclc_level`` / ``ecrit_band`` are derived from ``estimated_level`` via the
+    pure-Python :data:`NCLC_ECRIT_BANDS` lookup in the ``assemble`` node — not
+    produced by the model.
+    """
 
     task_fulfillment: float = Field(description="Task fulfillment score, 0–6.")
     coherence: float = Field(description="Coherence/organisation score, 0–6.")
@@ -150,6 +179,8 @@ class EssayGrade(BaseModel):
     estimated_level: CEFRLevel
     overall_comment: str
     corrections: list[Correction]
+    nclc_level: str | None = None
+    ecrit_band: str | None = None
 
 
 _client: AsyncAnthropic | None = None

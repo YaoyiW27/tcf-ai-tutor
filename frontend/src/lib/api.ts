@@ -65,6 +65,10 @@ export type EssayGrade = {
   answer_id: string;
   total_score: number;
   estimated_level: DifficultyLevel;
+  /** Official NCLC level for estimated_level, e.g. "NCLC 7" (null if unknown). */
+  nclc_level: string | null;
+  /** Official TCF "expression écrite" band, e.g. "10–11" (null if unknown). */
+  ecrit_band: string | null;
   dimension_scores: DimensionScores;
   corrections: Correction[];
   overall_comment: string;

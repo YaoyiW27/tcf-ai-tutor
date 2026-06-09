@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import graph
+from app import grader, graph
 from app.db import get_session
 from app.models import AIFeedback, Answer, Question
 
@@ -43,6 +43,8 @@ class FeedbackOut(BaseModel):
     answer_id: uuid.UUID
     total_score: float
     estimated_level: str
+    nclc_level: str | None
+    ecrit_band: str | None
     dimension_scores: dict[str, float]
     corrections: list[dict]
     overall_comment: str
@@ -50,14 +52,22 @@ class FeedbackOut(BaseModel):
 
 
 def _serialize(fb: AIFeedback) -> FeedbackOut:
-    """Build the API response, lifting estimated_level out of the JSON."""
+    """Build the API response, lifting estimated_level out of the JSON.
+
+    nclc_level / ecrit_band aren't stored (no schema change); they're a pure
+    Python lookup from estimated_level, so GET feedback reports the same band
+    as the original grade.
+    """
     scores = dict(fb.dimension_scores)
     estimated_level = scores.pop("estimated_level")
+    nclc_level, ecrit_band = grader.nclc_band_for(estimated_level)
     return FeedbackOut(
         id=fb.id,
         answer_id=fb.answer_id,
         total_score=fb.total_score,
         estimated_level=estimated_level,
+        nclc_level=nclc_level,
+        ecrit_band=ecrit_band,
         dimension_scores=scores,
         corrections=fb.corrections,
         overall_comment=fb.overall_comment,

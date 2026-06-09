@@ -193,40 +193,61 @@ export default function QuestionPage({
 function GradeReport({ grade }: { grade: EssayGrade }) {
   return (
     <section className="flex flex-col gap-5 rounded-lg border border-border bg-card p-5">
-      <div className="flex items-baseline gap-3">
-        <h2 className="text-lg font-semibold">Feedback</h2>
-        <span className="text-sm text-muted-foreground">
-          Score{" "}
-          <span className="font-semibold text-foreground">
-            {grade.total_score}
-          </span>{" "}
-          / 6
+      {/* Headline: the official estimated level + NCLC + écrite band. */}
+      <div className="flex flex-col gap-2 rounded-lg bg-primary/5 p-4">
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Estimated TCF Canada level
         </span>
-        <span className="ml-auto rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground">
-          {grade.estimated_level}
-        </span>
+        <div className="flex flex-wrap items-baseline gap-3">
+          <span className="text-4xl font-bold tracking-tight">
+            {grade.estimated_level}
+          </span>
+          {grade.nclc_level && (
+            <span className="rounded-full bg-primary px-3 py-1 text-sm font-medium text-primary-foreground">
+              {grade.nclc_level}
+            </span>
+          )}
+          {grade.ecrit_band && (
+            <span className="text-sm text-muted-foreground">
+              Expression écrite{" "}
+              <span className="font-semibold text-foreground">
+                {grade.ecrit_band === "below 6" ? "non atteint" : grade.ecrit_band}
+              </span>
+              {grade.ecrit_band !== "below 6" && " / 20"}
+            </span>
+          )}
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {(
-          Object.keys(DIMENSION_LABELS) as (keyof typeof DIMENSION_LABELS)[]
-        ).map((key) => (
-          <div
-            key={key}
-            className="rounded-md border border-border bg-background p-3"
-          >
-            <div className="text-xs text-muted-foreground">
-              {DIMENSION_LABELS[key]}
+      <div>
+        <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
+          <h3 className="text-sm font-medium">Dimension scores</h3>
+          <span className="text-xs text-muted-foreground">
+            Internal assessment — not official TCF points (avg{" "}
+            {grade.total_score} / 6)
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {(
+            Object.keys(DIMENSION_LABELS) as (keyof typeof DIMENSION_LABELS)[]
+          ).map((key) => (
+            <div
+              key={key}
+              className="rounded-md border border-border bg-background p-3"
+            >
+              <div className="text-xs text-muted-foreground">
+                {DIMENSION_LABELS[key]}
+              </div>
+              <div className="text-lg font-semibold">
+                {grade.dimension_scores[key]}
+                <span className="text-sm font-normal text-muted-foreground">
+                  {" "}
+                  / 6
+                </span>
+              </div>
             </div>
-            <div className="text-lg font-semibold">
-              {grade.dimension_scores[key]}
-              <span className="text-sm font-normal text-muted-foreground">
-                {" "}
-                / 6
-              </span>
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       <div>
