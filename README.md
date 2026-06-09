@@ -1,14 +1,72 @@
 # tcf-ai-tutor
 
-A personal project to learn AI engineering by building a multi-agent
-AI tutor for TCF Canada preparation.
+**TCF Canada AI Tutor** — a LangGraph multi-node AI writing grader with a Next.js frontend. A personal project for hands-on AI engineering, motivated by preparing for TCF Canada.
 
-## Goal
+## Stack
 
-Primary: Gain hands-on experience with modern AI engineering — multi-agent
-systems, voice AI, and production observability for LLM applications.
+**Backend:** FastAPI · PostgreSQL · SQLAlchemy · Alembic · LangGraph · Anthropic
+**Frontend:** Next.js · shadcn/ui · Tailwind · TypeScript
 
-Secondary: Use it myself to prepare for TCF Canada.
+---
+
+## Running the project
+
+In development, run **two terminals at once**: one for the backend (`:8000`) and one for the frontend (`:3000`). Once both are up, open **http://localhost:3000** in your browser.
+
+> Prerequisites: Python 3.11, Node.js, and a running PostgreSQL.
+
+### Start the backend
+
+In **terminal 1**, copy-paste from the repo root:
+
+```bash
+cd backend
+
+# 1) Python virtualenv + dependencies
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# 2) Create the database role and database (one-time; set a password when prompted)
+createuser tcf_app --pwprompt
+createdb tcf_ai_tutor -O tcf_app
+
+# 3) Config: copy the template, then edit .env with your DB password and Anthropic key
+cp .env.example .env
+#    Open .env and replace the placeholders with real values:
+#    DATABASE_URL=postgresql+asyncpg://tcf_app:YOUR_PASSWORD@localhost:5432/tcf_ai_tutor
+#    ANTHROPIC_API_KEY=sk-ant-YOUR_KEY
+
+# 4) Create tables + seed sample questions
+alembic upgrade head
+python -m scripts.seed_questions
+
+# 5) Run the API (:8000)
+uvicorn app.main:app --reload --port 8000
+```
+
+Verify: `curl http://localhost:8000/health` should return `{"status":"ok"}`. Interactive docs live at <http://localhost:8000/docs>.
+
+### Start the frontend
+
+In **terminal 2**, copy-paste from the repo root:
+
+```bash
+cd frontend
+
+# 1) Dependencies
+npm install
+
+# 2) Config: backend URL (only needed to override the default of localhost:8000)
+cp .env.example .env.local
+
+# 3) Run the dev server (:3000)
+npm run dev
+```
+
+Open **http://localhost:3000** — the home page fetches and renders the question list from the backend's `GET /questions`.
+
+---
 
 ## What it is (and isn't)
 
@@ -31,8 +89,8 @@ Secondary: Use it myself to prepare for TCF Canada.
   - [x] Frontend scaffold (Next.js + Tailwind + shadcn/ui)
   - [x] Backend scaffold (FastAPI + `/health`)
   - [x] Frontend-backend integration (CORS + env config)
-- [ ] Phase 1: Schema design & first agent
-- [ ] Phase 2: Writing AI Grader
+- [x] Phase 1: Schema design & first agent
+- [x] Phase 2: Writing AI Grader (LangGraph multi-node pipeline)
 - [ ] Phase 3: Speaking Voice Agent
 - [ ] Phase 4: Multi-agent orchestration with LangGraph
 - [ ] Phase 5: Observability (Langfuse + OpenTelemetry)
@@ -49,53 +107,7 @@ tcf-ai-tutor/
 └── README.md
 ```
 
-## Quickstart
-
-### Backend (FastAPI)
-
-```bash
-cd backend
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-# verify:
-curl http://localhost:8000/health   # -> {"status":"ok"}
-```
-
-See [backend/README.md](backend/README.md) for details.
-
-### Frontend (Next.js)
-
-```bash
-cd frontend
-npm install
-npm run dev
-# open http://localhost:3000
-```
-
-## Stack
-
-**Frontend** (scaffolded):
-- Next.js 16 (App Router, Turbopack) + React 19 + TypeScript
-- Tailwind CSS v4
-- shadcn/ui (Radix base, Nova preset)
-
-**Backend** (scaffolded):
-- Python 3.11, FastAPI, uvicorn[standard]
-
-**AI** (planned):
-- LangGraph — multi-agent orchestration
-- Whisper — speech-to-text
-- OpenAI / Anthropic API — LLM backbone
-
-**Observability** (planned):
-- Langfuse — LLM-specific tracing (prompts, costs, latency)
-- OpenTelemetry — distributed tracing across services
-
-**Infrastructure** (planned):
-- Docker — containerization
-- TBD: cloud deployment, database
+See [backend/README.md](backend/README.md) for backend details.
 
 ## Positioning
 
