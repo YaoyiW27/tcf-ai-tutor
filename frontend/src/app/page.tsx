@@ -1,54 +1,73 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { getQuestions, type Question } from "@/lib/api";
 
-type Status =
-  | { kind: "idle" }
+type State =
   | { kind: "loading" }
-  | { kind: "success"; data: unknown }
+  | { kind: "success"; questions: Question[] }
   | { kind: "error"; message: string };
 
 export default function Home() {
-  const [status, setStatus] = useState<Status>({ kind: "idle" });
+  const [state, setState] = useState<State>({ kind: "loading" });
 
-  async function checkBackend() {
-    setStatus({ kind: "loading" });
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/health`);
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      setStatus({ kind: "success", data });
-    } catch (err) {
-      setStatus({
-        kind: "error",
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
+  useEffect(() => {
+    getQuestions()
+      .then((questions) => setState({ kind: "success", questions }))
+      .catch((err) =>
+        setState({
+          kind: "error",
+          message: err instanceof Error ? err.message : String(err),
+        }),
+      );
+  }, []);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
-      <h1 className="text-4xl font-semibold tracking-tight">
-        Hello, TCF AI Tutor
-      </h1>
-      <p className="text-muted-foreground">
-        Frontend scaffold: Next.js + Tailwind + shadcn/ui
-      </p>
-      <Button onClick={checkBackend} disabled={status.kind === "loading"}>
-        {status.kind === "loading" ? "Checking…" : "Check backend"}
-      </Button>
+    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 p-8">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-3xl font-semibold tracking-tight">TCF Questions</h1>
+        <p className="text-sm text-muted-foreground">
+          Loaded from the backend at <code>GET /questions</code>.
+        </p>
+      </header>
 
-      {status.kind === "success" && (
-        <pre className="rounded-md bg-muted px-4 py-2 text-sm">
-          {JSON.stringify(status.data, null, 2)}
-        </pre>
+      {state.kind === "loading" && (
+        <p className="text-sm text-muted-foreground">Loading questions…</p>
       )}
-      {status.kind === "error" && (
-        <p className="text-sm text-destructive">Error: {status.message}</p>
+
+      {state.kind === "error" && (
+        <p className="text-sm text-destructive">
+          Failed to load questions: {state.message}
+        </p>
+      )}
+
+      {state.kind === "success" && state.questions.length === 0 && (
+        <p className="text-sm text-muted-foreground">No questions yet.</p>
+      )}
+
+      {state.kind === "success" && state.questions.length > 0 && (
+        <ul className="flex flex-col gap-4">
+          {state.questions.map((q) => (
+            <li
+              key={q.id}
+              className="rounded-lg border border-border bg-card p-4 text-card-foreground"
+            >
+              <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  Task {q.task_number}
+                </span>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                  {q.difficulty_level}
+                </span>
+                <span className="ml-auto text-xs">
+                  {q.word_count_min}–{q.word_count_max} words
+                </span>
+              </div>
+              <p className="text-sm leading-relaxed">{q.prompt}</p>
+            </li>
+          ))}
+        </ul>
       )}
     </main>
   );
