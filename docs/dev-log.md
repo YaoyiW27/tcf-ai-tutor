@@ -37,7 +37,7 @@
 - End-to-end validation passed: submit → grade → read feedback. First real AI grading output received: B2, total score 5.4.
 - Known issue: the grader occasionally “corrects” French that is already correct, such as misclassifying the imparfait de politesse as an error. This will be addressed later during the LangGraph hardening phase.
 
-## 2026-06-08
+## 2026-06-07
 - LangGraph multi-node grading pipeline: START → score → find_errors → verify_errors → assemble → END
 - 3 focused Claude calls (sonnet-4-6, serial) + pure-Python assemble; run_grader interface unchanged
 - verify_errors fixes over-correction: keeps genuine errors, drops polite imparfait / stylistic rewrites; "unsure → not an error"
@@ -45,10 +45,19 @@
 - Phase 2 (Writing grader) functionally complete
 - Tradeoff noted: serial calls ≈ 10-15s/grade; score+find_errors are parallelizable later if needed
 
+## 2026-06-08
+- Frontend wired to backend end-to-end: questions list + question detail page (essay submission → grade → feedback UI)
+- CORS enabled (localhost:3000); client-component fetch (verifies real browser→backend path)
+- Closed the loop: pick question → write → submit → AI feedback, all in the browser
+- Perf: instrumented per-node timing; grading 60s → 32s (trimmed find_errors output) → 19s (parallelized score + find_errors via LangGraph fan-out/fan-in, no reducer needed — disjoint state fields)
+- Scoring redesign: dropped fake 0–6-as-TCF-score; now reports estimated CEFR level + NCLC + official expression écrite band (pure-Python lookup from estimated_level, no LLM, no DB change). A1 shows "non atteint". Dimension scores relabeled "internal assessment, not official TCF points"
+- Verified both ends of the band mapping (B2/NCLC7/10–11 and A1/NCLC4/non atteint)
+
 ## Next up
-- Phase 2 cont. — Step C: refactor the single-call grader into a LangGraph multi-agent graph
-  - Decompose grading into focused nodes (per-dimension scoring + a skeptical correction-checker)
-  - Goal: fix over-correction (only flag real errors), make each step traceable for the later Langfuse phase
+- Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI
+- UX: remove the hardcoded "10–15s" text under the grading button (loading state already conveys it)
+- Bug: frontend spams GET /questions repeatedly (likely a useEffect dependency issue in [id]/page.tsx) — investigate and fix
+- Then choose: Langfuse observability (trace per-node latency/tokens — natural next step) OR Speaking agent (Phase 3: Whisper + LangGraph + TTS)
 
 ## Notes
 - Two-terminal workflow established: one for backend (uvicorn), one for everything else.
