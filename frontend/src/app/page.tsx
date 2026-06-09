@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { getQuestions, type Question } from "@/lib/api";
@@ -49,22 +50,24 @@ export default function Home() {
       {state.kind === "success" && state.questions.length > 0 && (
         <ul className="flex flex-col gap-4">
           {state.questions.map((q) => (
-            <li
-              key={q.id}
-              className="rounded-lg border border-border bg-card p-4 text-card-foreground"
-            >
-              <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  Task {q.task_number}
-                </span>
-                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
-                  {q.difficulty_level}
-                </span>
-                <span className="ml-auto text-xs">
-                  {q.word_count_min}–{q.word_count_max} words
-                </span>
-              </div>
-              <p className="text-sm leading-relaxed">{q.prompt}</p>
+            <li key={q.id}>
+              <Link
+                href={`/questions/${q.id}`}
+                className="block rounded-lg border border-border bg-card p-4 text-card-foreground transition-colors hover:border-foreground/30 hover:bg-accent"
+              >
+                <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">
+                    Task {q.task_number}
+                  </span>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                    {q.difficulty_level}
+                  </span>
+                  <span className="ml-auto text-xs">
+                    {q.word_count_min}–{q.word_count_max} words
+                  </span>
+                </div>
+                <p className="text-sm leading-relaxed">{q.prompt}</p>
+              </Link>
             </li>
           ))}
         </ul>
