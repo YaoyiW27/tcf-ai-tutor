@@ -59,17 +59,18 @@ FIND_ERRORS_SYSTEM = (
     _EXAMINER
     + """
 
-Read the candidate's essay and collect every *candidate* language error you \
-notice: grammar, agreement, tense, spelling, wrong word choice, or awkward \
-constructions. For each one return:
+Read the candidate's essay and collect the most likely *candidate* language \
+errors: grammar, agreement, tense, spelling, or wrong word choice. For each \
+one return:
 
 - original: the exact French excerpt from the essay,
 - correction: the corrected French version,
-- explanation: a brief explanation of the fix, in French.
+- explanation: ONE short sentence, in French, explaining the fix.
 
-Be generous and over-collect — when in doubt, include it. A later reviewer \
-will filter out anything that is not a genuine error, so recall matters more \
-than precision at this stage. Return up to 15 candidates."""
+Only flag things that are plausibly actual errors — do NOT report stylistic \
+nitpicks or matters of taste (a later reviewer does the final filtering). If \
+the essay has no real errors, return an empty list: do not invent or pad \
+errors to reach a count. Return at most 6 candidates."""
 )
 
 VERIFY_ERRORS_SYSTEM = (

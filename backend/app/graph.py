@@ -4,7 +4,13 @@ The grader runs as a four-node pipeline so that *finding* errors and
 *judging* them are separate steps — this is what stops the model from
 "correcting" French that was already correct:
 
-    START → score → find_errors → verify_errors → assemble → END
+    START → score ──────┐
+                        ├→ verify_errors → assemble → END
+    START → find_errors ┘
+
+``score`` and ``find_errors`` are independent and run concurrently; their
+state writes are disjoint, so no channel reducer is needed. ``verify_errors``
+fans in and only runs once BOTH have finished.
 
 - ``score``          — four rubric dimensions + CEFR level + comment (no fixes)
 - ``find_errors``    — over-collect candidate errors (recall over precision)
@@ -18,6 +24,10 @@ and reused for every request — do not recompile per call. Routers should
 depend on :func:`run_grader` rather than touching the graph directly.
 """
 
+import inspect
+import logging
+import time
+from functools import wraps
 from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -25,6 +35,46 @@ from langgraph.graph import END, START, StateGraph
 from app import grader
 from app.grader import Correction, EssayGrade
 from app.models import Question
+
+# Timing instrumentation only — one line per node + a total per run, so it's
+# easy to see which step dominates the ~10–15s grade. Self-contained handler so
+# the lines show up under uvicorn without depending on root logging config.
+logger = logging.getLogger("app.graph")
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(_handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+
+def _timed(name: str, fn):
+    """Wrap a graph node so it logs ``[grade] <name> took N.Ns``.
+
+    Preserves the node's sync/async nature and returns its result unchanged —
+    pure instrumentation, no behavior change.
+    """
+    if inspect.iscoroutinefunction(fn):
+
+        @wraps(fn)
+        async def async_wrapper(state: "GraphState") -> dict:
+            start = time.perf_counter()
+            try:
+                return await fn(state)
+            finally:
+                logger.info("[grade] %s took %.1fs", name, time.perf_counter() - start)
+
+        return async_wrapper
+
+    @wraps(fn)
+    def sync_wrapper(state: "GraphState") -> dict:
+        start = time.perf_counter()
+        try:
+            return fn(state)
+        finally:
+            logger.info("[grade] %s took %.1fs", name, time.perf_counter() - start)
+
+    return sync_wrapper
 
 
 class GraphState(TypedDict):
@@ -92,12 +142,17 @@ def assemble_node(state: GraphState) -> dict:
 
 def _build_graph():
     builder = StateGraph(GraphState)
-    builder.add_node("score", score_node)
-    builder.add_node("find_errors", find_errors_node)
-    builder.add_node("verify_errors", verify_errors_node)
-    builder.add_node("assemble", assemble_node)
+    builder.add_node("score", _timed("score", score_node))
+    builder.add_node("find_errors", _timed("find_errors", find_errors_node))
+    builder.add_node("verify_errors", _timed("verify_errors", verify_errors_node))
+    builder.add_node("assemble", _timed("assemble", assemble_node))
+    # score and find_errors are independent: fan them out from START so they
+    # run concurrently, then fan in to verify_errors (it waits for BOTH). Their
+    # state writes are disjoint (see GraphState comments), so no channel reducer
+    # is needed despite the parallel updates.
     builder.add_edge(START, "score")
-    builder.add_edge("score", "find_errors")
+    builder.add_edge(START, "find_errors")
+    builder.add_edge("score", "verify_errors")
     builder.add_edge("find_errors", "verify_errors")
     builder.add_edge("verify_errors", "assemble")
     builder.add_edge("assemble", END)
@@ -110,5 +165,7 @@ _graph = _build_graph()
 
 async def run_grader(question: Question, content: str) -> EssayGrade:
     """Invoke the grading pipeline and return the validated :class:`EssayGrade`."""
+    start = time.perf_counter()
     final_state = await _graph.ainvoke({"question": question, "content": content})
+    logger.info("[grade] run_grader total took %.1fs", time.perf_counter() - start)
     return final_state["result"]
