@@ -25,5 +25,13 @@ class Settings(BaseSettings):
     database_url: str
     anthropic_api_key: str | None = None
 
+    # Langfuse (LLM observability). Optional — tracing is disabled when unset.
+    # Read here for the same reason as ANTHROPIC_API_KEY above: pydantic-settings
+    # loads .env into this object, not os.environ, so the SDK can't see keys that
+    # live only in .env. app.graph passes these to the Langfuse client.
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_host: str | None = None
+
 
 settings = Settings()

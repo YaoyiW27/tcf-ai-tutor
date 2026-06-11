@@ -30,11 +30,25 @@ import time
 from functools import wraps
 from typing import TypedDict
 
+from langfuse import Langfuse, get_client, observe
 from langgraph.graph import END, START, StateGraph
 
 from app import grader
+from app.config import settings
 from app.grader import Correction, EssayGrade
 from app.models import Question
+
+# Langfuse tracing for the grader. Keys live in .env, which pydantic-settings
+# loads into `settings` (not os.environ), so the SDK can't auto-discover them —
+# pass them explicitly, exactly like the Anthropic client. Initialised once at
+# import only when both keys are present; otherwise tracing is disabled and the
+# @observe()'d run_grader below runs unchanged.
+if settings.langfuse_public_key and settings.langfuse_secret_key:
+    Langfuse(
+        public_key=settings.langfuse_public_key,
+        secret_key=settings.langfuse_secret_key,
+        host=settings.langfuse_host,
+    )
 
 # Timing instrumentation only — one line per node + a total per run, so it's
 # easy to see which step dominates the ~10–15s grade. Self-contained handler so
@@ -170,9 +184,19 @@ def _build_graph():
 _graph = _build_graph()
 
 
+@observe()
 async def run_grader(question: Question, content: str) -> EssayGrade:
-    """Invoke the grading pipeline and return the validated :class:`EssayGrade`."""
+    """Invoke the grading pipeline and return the validated :class:`EssayGrade`.
+
+    Wrapped in Langfuse's ``@observe`` so each grade is one top-level trace
+    (individual nodes are not instrumented yet — just this entry point).
+    """
     start = time.perf_counter()
-    final_state = await _graph.ainvoke({"question": question, "content": content})
-    logger.info("[grade] run_grader total took %.1fs", time.perf_counter() - start)
-    return final_state["result"]
+    try:
+        final_state = await _graph.ainvoke({"question": question, "content": content})
+        logger.info("[grade] run_grader total took %.1fs", time.perf_counter() - start)
+        return final_state["result"]
+    finally:
+        # Flush this run's trace once the graph has finished (success or error).
+        # No-op when tracing is disabled.
+        get_client().flush()
