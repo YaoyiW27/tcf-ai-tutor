@@ -93,13 +93,29 @@ async function errorFrom(res: Response, label: string): Promise<Error> {
   return new Error(`${label}: ${detail}`);
 }
 
-/** Fetch the full question list from the backend. */
-export async function getQuestions(): Promise<Question[]> {
+/**
+ * De-duplicate concurrent callers onto a single request. React Strict Mode
+ * double-invokes mount effects in dev (and Fast Refresh re-runs them on save),
+ * so an unguarded fetch-in-effect can hit /questions several times in a tick.
+ * Sharing the in-flight promise collapses those to one network call; clearing
+ * it once settled keeps each fresh page load fetching real data.
+ */
+let inFlightQuestions: Promise<Question[]> | null = null;
+
+async function fetchQuestions(): Promise<Question[]> {
   const res = await fetch(`${API_BASE_URL}/questions`);
   if (!res.ok) {
     throw await errorFrom(res, "GET /questions failed");
   }
   return res.json();
+}
+
+/** Fetch the full question list from the backend (one request per page load). */
+export function getQuestions(): Promise<Question[]> {
+  inFlightQuestions ??= fetchQuestions().finally(() => {
+    inFlightQuestions = null;
+  });
+  return inFlightQuestions;
 }
 
 /** Submit an essay for a question; returns the stored answer (with its id). */

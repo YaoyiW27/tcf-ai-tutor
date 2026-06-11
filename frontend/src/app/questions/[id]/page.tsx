@@ -169,13 +169,13 @@ export default function QuestionPage({
       </section>
 
       <Button onClick={onSubmit} disabled={!canSubmit} className="self-start">
-        {grading ? "Grading… (10–15s)" : "Submit for grading"}
+        {grading ? "Grading…" : "Submit for grading"}
       </Button>
 
       {grading && (
         <p className="text-sm text-muted-foreground">
           Running the grader — three AI passes (score → find errors → verify).
-          This takes about 10–15 seconds; please keep this tab open.
+          Please keep this tab open.
         </p>
       )}
 
