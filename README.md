@@ -40,10 +40,17 @@ cp .env.example .env
 # 4) Create tables + seed sample questions
 alembic upgrade head
 python -m scripts.seed_questions
+```
 
-# 5) Run the API (:8000)
+Then **run the API** (:8000) — copy-paste this block every time you start it:
+
+```bash
+cd backend
+source .venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 ```
+
+> The venv must be activated (prompt shows `(.venv)`) before running uvicorn, otherwise dependencies like `sqlalchemy` won't be found.
 
 Verify: `curl http://localhost:8000/health` should return `{"status":"ok"}`. Interactive docs live at <http://localhost:8000/docs>.
 
