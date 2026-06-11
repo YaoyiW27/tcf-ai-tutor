@@ -53,11 +53,21 @@
 - Scoring redesign: dropped fake 0–6-as-TCF-score; now reports estimated CEFR level + NCLC + official expression écrite band (pure-Python lookup from estimated_level, no LLM, no DB change). A1 shows "non atteint". Dimension scores relabeled "internal assessment, not official TCF points"
 - Verified both ends of the band mapping (B2/NCLC7/10–11 and A1/NCLC4/non atteint)
 
+## 2026-06-10
+- Frontend: fixed repeated GET /questions on the question pages. Root cause was NOT a useEffect dependency bug — the deps were already correct (`[]` and `[id]`). It's React 19 Strict Mode double-invoking the mount effect in `next dev` (two requests ~1ms apart), compounded by Fast Refresh re-running the effect on every save. Fixed by de-duplicating the in-flight request in `lib/api.ts` (shared promise, cleared on settle) so /questions hits the backend once per page load. Verified with a mock backend + headless Chrome: a list→detail navigation dropped from 3 hits to 2 (one per load).
+- Frontend UX: removed the hardcoded "10–15s" estimate (grading button + loading paragraph); kept the disabled-button + "Grading…" loading state.
+- Docs: README backend run block now activates the venv before uvicorn, with a note that the prompt must show `(.venv)` or sqlalchemy won't be found.
+- Observability (Phase 5 start): integrated Langfuse (4.7.1, OTEL-based). `@observe()` on `run_grader` — the LangGraph entry point only, nodes not yet instrumented — and `langfuse.flush()` after each run (finally, so it fires on success or error). Keys (LANGFUSE_PUBLIC_KEY / SECRET_KEY / HOST) read via pydantic-settings and passed explicitly to the client — same `.env`-not-`os.environ` reason as ANTHROPIC_API_KEY. Tracing disabled cleanly when keys are unset, so grading still works. Added to requirements.txt + .env.example.
+
 ## Next up
-- Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI
-- UX: remove the hardcoded "10–15s" text under the grading button (loading state already conveys it)
-- Bug: frontend spams GET /questions repeatedly (likely a useEffect dependency issue in [id]/page.tsx) — investigate and fix
-- Then choose: Langfuse observability (trace per-node latency/tokens — natural next step) OR Speaking agent (Phase 3: Whisper + LangGraph + TTS)
+- Langfuse, deepen tracing (now that the entry point is wired):
+  - Instrument the four graph nodes (score / find_errors / verify_errors / assemble) as nested spans under the `run_grader` trace — gives per-node latency and replaces the manual `logger` timing in `app.graph`.
+  - Wrap each Anthropic `messages.parse` call as a Langfuse *generation* to capture model + input/output tokens, so cost-per-grade is visible per node.
+  - Attach trace metadata (answer id, question id / task number, estimated_level) so traces are filterable and linkable back to the stored feedback.
+  - Verify end-to-end against a real Langfuse project; decide cloud vs self-hosted (self-host is Docker → folds into Phase 6).
+  - Revisit flush strategy: per-run flush is fine at current volume; switch to background-exporter-only (flush on app shutdown) if it adds latency.
+- Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI (per-node Langfuse spans above will show where the time goes)
+- Phase 3: Speaking agent (Whisper + LangGraph + TTS)
 
 ## Notes
 - Two-terminal workflow established: one for backend (uvicorn), one for everything else.
