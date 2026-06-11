@@ -59,6 +59,19 @@
 - Docs: README backend run block now activates the venv before uvicorn, with a note that the prompt must show `(.venv)` or sqlalchemy won't be found.
 - Observability (Phase 5 start): integrated Langfuse (4.7.1, OTEL-based). `@observe()` on `run_grader` — the LangGraph entry point only, nodes not yet instrumented — and `langfuse.flush()` after each run (finally, so it fires on success or error). Keys (LANGFUSE_PUBLIC_KEY / SECRET_KEY / HOST) read via pydantic-settings and passed explicitly to the client — same `.env`-not-`os.environ` reason as ANTHROPIC_API_KEY. Tracing disabled cleanly when keys are unset, so grading still works. Added to requirements.txt + .env.example.
 
+## 2026-06-10 Session 4
+
+### Langfuse observability — Step 1
+- Installed langfuse==4.7.1, wired to Langfuse Cloud (US region)
+- Decorated top-level run_grader with @observe(), flush in finally block
+- Langfuse client init is conditional: keys missing → tracing disabled silently
+- First trace confirmed in dashboard: run_grader span with full input/output/latency
+
+### Next
+- Step 2: instrument individual nodes (score, find_errors, verify_errors, assemble) as child spans with token usage
+- Step 3: add business metadata (user_id, question_id, cefr_level)
+- Future: self-host Langfuse on K8s via Helm chart (Phase 6)
+
 ## Next up
 - Langfuse, deepen tracing (now that the entry point is wired):
   - Instrument the four graph nodes (score / find_errors / verify_errors / assemble) as nested spans under the `run_grader` trace — gives per-node latency and replaces the manual `logger` timing in `app.graph`.
