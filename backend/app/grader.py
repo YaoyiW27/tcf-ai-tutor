@@ -21,7 +21,7 @@ persistence; :mod:`app.graph` owns the pipeline.
 from typing import Literal
 
 from anthropic import AsyncAnthropic
-from anthropic.types import Usage
+from anthropic.types import ThinkingConfigParam, Usage
 from pydantic import BaseModel, Field
 
 from app.config import settings
@@ -197,17 +197,33 @@ def _get_client() -> AsyncAnthropic:
     return _client
 
 
-async def _structured_call(system: str, user: str, output_format: type[BaseModel]):
+# Default reasoning config: let the model size its own thinking budget (up to
+# max_tokens). Verify overrides this with a small fixed budget — see verify_errors.
+_ADAPTIVE_THINKING: ThinkingConfigParam = {"type": "adaptive"}
+
+
+async def _structured_call(
+    system: str,
+    user: str,
+    output_format: type[BaseModel],
+    *,
+    max_tokens: int = 8000,
+    thinking: ThinkingConfigParam = _ADAPTIVE_THINKING,
+):
     """One structured Claude call.
 
     Returns ``(validated Pydantic object, token usage)`` so callers can report
     the call as a Langfuse generation (model + input/output tokens). Callers
     that don't need the usage can discard it.
+
+    ``max_tokens`` and ``thinking`` default to the adaptive, generous settings
+    used by scoring/error-finding; callers can override them for cheaper, more
+    constrained steps (note: ``budget_tokens`` must be < ``max_tokens``).
     """
     response = await _get_client().messages.parse(
         model=MODEL,
-        max_tokens=8000,
-        thinking={"type": "adaptive"},
+        max_tokens=max_tokens,
+        thinking=thinking,
         system=system,
         messages=[{"role": "user", "content": user}],
         output_format=output_format,
@@ -267,9 +283,16 @@ async def verify_errors(
         f"## Candidate's essay\n{content}\n\n"
         f"## Candidate corrections to review\n{candidates}"
     )
+    # Verification is a constrained per-candidate classification, so cap the
+    # reasoning to a small fixed budget and a small output instead of the
+    # adaptive default — this is the step that dominated grade latency.
     verdicts: VerificationResult
     verdicts, _usage = await _structured_call(
-        VERIFY_ERRORS_SYSTEM, user, VerificationResult
+        VERIFY_ERRORS_SYSTEM,
+        user,
+        VerificationResult,
+        max_tokens=2000,
+        thinking={"type": "enabled", "budget_tokens": 1024},
     )
     return [
         Correction(
