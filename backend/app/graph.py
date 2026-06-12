@@ -112,9 +112,29 @@ class GraphState(TypedDict):
     result: EssayGrade
 
 
+def _log_generation(name: str, usage) -> None:
+    """Record one Anthropic call as a Langfuse generation under the current span.
+
+    Nests under whichever node span is active (the ``@observe()``'d node that
+    calls this), capturing the model and input/output token counts. No-op when
+    tracing is disabled — ``get_client()`` returns a disabled stub then.
+    """
+    get_client().start_observation(
+        name=name,
+        as_type="generation",
+        model=grader.MODEL,
+        usage_details={
+            "input": usage.input_tokens,
+            "output": usage.output_tokens,
+        },
+    ).end()
+
+
+@observe()
 async def score_node(state: GraphState) -> dict:
     """Score the four dimensions + CEFR level + comment."""
-    score = await grader.score_essay(state["question"], state["content"])
+    score, usage = await grader.score_essay(state["question"], state["content"])
+    _log_generation("score", usage)
     return {
         "dimension_scores": {
             "task_fulfillment": score.task_fulfillment,
@@ -127,18 +147,22 @@ async def score_node(state: GraphState) -> dict:
     }
 
 
+@observe()
 async def find_errors_node(state: GraphState) -> dict:
     """Over-collect candidate language errors."""
-    draft = await grader.find_errors(state["question"], state["content"])
+    draft, usage = await grader.find_errors(state["question"], state["content"])
+    _log_generation("find_errors", usage)
     return {"draft_corrections": draft}
 
 
+@observe()
 async def verify_errors_node(state: GraphState) -> dict:
     """Filter the candidates down to genuine errors."""
     verified = await grader.verify_errors(state["content"], state["draft_corrections"])
     return {"verified_corrections": verified}
 
 
+@observe()
 def assemble_node(state: GraphState) -> dict:
     """Combine the pieces into the final EssayGrade (no Claude call).
 

@@ -21,6 +21,7 @@ persistence; :mod:`app.graph` owns the pipeline.
 from typing import Literal
 
 from anthropic import AsyncAnthropic
+from anthropic.types import Usage
 from pydantic import BaseModel, Field
 
 from app.config import settings
@@ -197,7 +198,12 @@ def _get_client() -> AsyncAnthropic:
 
 
 async def _structured_call(system: str, user: str, output_format: type[BaseModel]):
-    """One structured Claude call, returning the validated Pydantic object."""
+    """One structured Claude call.
+
+    Returns ``(validated Pydantic object, token usage)`` so callers can report
+    the call as a Langfuse generation (model + input/output tokens). Callers
+    that don't need the usage can discard it.
+    """
     response = await _get_client().messages.parse(
         model=MODEL,
         max_tokens=8000,
@@ -206,7 +212,7 @@ async def _structured_call(system: str, user: str, output_format: type[BaseModel
         messages=[{"role": "user", "content": user}],
         output_format=output_format,
     )
-    return response.parsed_output
+    return response.parsed_output, response.usage
 
 
 def _build_task_message(question: Question, content: str) -> str:
@@ -220,19 +226,28 @@ def _build_task_message(question: Question, content: str) -> str:
     )
 
 
-async def score_essay(question: Question, content: str) -> EssayScore:
-    """Score the four dimensions + CEFR level + comment. No corrections."""
+async def score_essay(question: Question, content: str) -> tuple[EssayScore, Usage]:
+    """Score the four dimensions + CEFR level + comment. No corrections.
+
+    Returns the score plus the Claude call's token usage (for tracing).
+    """
     return await _structured_call(
         SCORE_SYSTEM, _build_task_message(question, content), EssayScore
     )
 
 
-async def find_errors(question: Question, content: str) -> list[Correction]:
-    """Over-collect candidate language errors (recall over precision)."""
-    draft: DraftCorrections = await _structured_call(
+async def find_errors(
+    question: Question, content: str
+) -> tuple[list[Correction], Usage]:
+    """Over-collect candidate language errors (recall over precision).
+
+    Returns the candidates plus the Claude call's token usage (for tracing).
+    """
+    draft: DraftCorrections
+    draft, usage = await _structured_call(
         FIND_ERRORS_SYSTEM, _build_task_message(question, content), DraftCorrections
     )
-    return draft.corrections
+    return draft.corrections, usage
 
 
 async def verify_errors(
@@ -252,7 +267,8 @@ async def verify_errors(
         f"## Candidate's essay\n{content}\n\n"
         f"## Candidate corrections to review\n{candidates}"
     )
-    verdicts: VerificationResult = await _structured_call(
+    verdicts: VerificationResult
+    verdicts, _usage = await _structured_call(
         VERIFY_ERRORS_SYSTEM, user, VerificationResult
     )
     return [
