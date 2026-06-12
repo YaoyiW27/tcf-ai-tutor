@@ -67,10 +67,19 @@
 - Langfuse client init is conditional: keys missing → tracing disabled silently
 - First trace confirmed in dashboard: run_grader span with full input/output/latency
 
-### Next
-- Step 2: instrument individual nodes (score, find_errors, verify_errors, assemble) as child spans with token usage
-- Step 3: add business metadata (user_id, question_id, cefr_level)
-- Future: self-host Langfuse on K8s via Helm chart (Phase 6)
+## 2026-06-11 Session 5
+
+### Langfuse observability — Step 2: per-node instrumentation
+- Added @observe() to all four LangGraph nodes (score, find_errors, verify_errors, assemble)
+- Added Langfuse generation logging with model name + token usage for score, find_errors, verify_errors
+- Confirmed nested trace in dashboard: run_grader → 4 child spans, 3 with generations
+
+### Performance discovery via Langfuse
+- Langfuse revealed verify_errors_node takes ~35s when essay has errors (previously showed 0.0s because earlier test essays had no errors, so verify short-circuited)
+- Root cause: adaptive thinking with no budget cap + max_tokens=8000 on a simple bool classification task
+- Fix: capped thinking budget to 1024 tokens, lowered max_tokens to 2000
+- Result: verify_errors 35.8s → 20.0s (~44% reduction)
+- Note: total grading time varies per run due to API latency fluctuation, not code
 
 ## Next up
 - Langfuse, deepen tracing (now that the entry point is wired):
@@ -81,6 +90,8 @@
   - Revisit flush strategy: per-run flush is fine at current volume; switch to background-exporter-only (flush on app shutdown) if it adds latency.
 - Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI (per-node Langfuse spans above will show where the time goes)
 - Phase 3: Speaking agent (Whisper + LangGraph + TTS)
+- Future: self-host Langfuse on K8s via Helm chart (Phase 6)
+- Expand seed questions to 15-20
 
 ## Notes
 - Two-terminal workflow established: one for backend (uvicorn), one for everything else.
