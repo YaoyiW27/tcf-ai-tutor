@@ -158,7 +158,11 @@ async def find_errors_node(state: GraphState) -> dict:
 @observe()
 async def verify_errors_node(state: GraphState) -> dict:
     """Filter the candidates down to genuine errors."""
-    verified = await grader.verify_errors(state["content"], state["draft_corrections"])
+    verified, usage = await grader.verify_errors(
+        state["content"], state["draft_corrections"]
+    )
+    if usage is not None:
+        _log_generation("verify_errors", usage)
     return {"verified_corrections": verified}
 
 

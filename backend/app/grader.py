@@ -268,10 +268,10 @@ async def find_errors(
 
 async def verify_errors(
     content: str, draft: list[Correction]
-) -> list[Correction]:
+) -> tuple[list[Correction], Usage | None]:
     """Keep only candidates that are genuine errors; drop the rest."""
     if not draft:
-        return []
+        return [], None
 
     candidates = "\n".join(
         f"{i}. original: {c.original!r}\n"
@@ -287,14 +287,14 @@ async def verify_errors(
     # reasoning to a small fixed budget and a small output instead of the
     # adaptive default — this is the step that dominated grade latency.
     verdicts: VerificationResult
-    verdicts, _usage = await _structured_call(
+    verdicts, usage = await _structured_call(
         VERIFY_ERRORS_SYSTEM,
         user,
         VerificationResult,
         max_tokens=2000,
         thinking={"type": "enabled", "budget_tokens": 1024},
     )
-    return [
+    corrections = [
         Correction(
             original=v.original,
             correction=v.correction,
@@ -303,3 +303,4 @@ async def verify_errors(
         for v in verdicts.items
         if v.is_genuine_error
     ]
+    return corrections, usage

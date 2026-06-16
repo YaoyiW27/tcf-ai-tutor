@@ -81,10 +81,16 @@
 - Result: verify_errors 35.8s → 20.0s (~44% reduction)
 - Note: total grading time varies per run due to API latency fluctuation, not code
 
+## 2026-06-15 Session 6
+
+### Langfuse observability — Step 2 follow-up
+- Fixed a tracing gap: `verify_errors` was documented as a Langfuse generation, but the code discarded its Anthropic token usage before `graph.py` could log it.
+- `grader.verify_errors()` now returns `(corrections, usage)` when it calls Claude, and `([], None)` when it short-circuits because there are no candidate corrections.
+- `verify_errors_node` now logs a `verify_errors` generation only when a model call actually happened, so Langfuse distinguishes "node ran with no candidates" from "node made a Claude call".
+- Verified syntax with `.venv/bin/python -m compileall app`.
+
 ## Next up
 - Langfuse, deepen tracing (now that the entry point is wired):
-  - Instrument the four graph nodes (score / find_errors / verify_errors / assemble) as nested spans under the `run_grader` trace — gives per-node latency and replaces the manual `logger` timing in `app.graph`.
-  - Wrap each Anthropic `messages.parse` call as a Langfuse *generation* to capture model + input/output tokens, so cost-per-grade is visible per node.
   - Attach trace metadata (answer id, question id / task number, estimated_level) so traces are filterable and linkable back to the stored feedback.
   - Verify end-to-end against a real Langfuse project; decide cloud vs self-hosted (self-host is Docker → folds into Phase 6).
   - Revisit flush strategy: per-run flush is fine at current volume; switch to background-exporter-only (flush on app shutdown) if it adds latency.
