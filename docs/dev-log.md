@@ -89,6 +89,13 @@
 - `verify_errors_node` now logs a `verify_errors` generation only when a model call actually happened, so Langfuse distinguishes "node ran with no candidates" from "node made a Claude call".
 - Verified syntax with `.venv/bin/python -m compileall app`.
 
+## 2026-06-16 Session 7
+
+### Grader regression eval v0
+- Added `backend/scripts/eval_grader.py`, a small human-readable eval script for the LangGraph writing grader. It calls the real grader with fixed examples and prints PASS/FAIL, estimated CEFR/NCLC/band, and corrections.
+- Covered three regression checks: polite imparfait should not be flagged (`Je voulais...`), obvious plural/agreement errors should be detected (`des pomme`, `très gentils`), and a very weak short answer should not be over-scored.
+- First run passed 3/3. Runtime was roughly 50s for three real Claude-backed grading runs, reinforcing that LLM evals should stay small, targeted, and explainable at this stage.
+
 ## Next up
 - Langfuse, deepen tracing (now that the entry point is wired):
   - Attach trace metadata (answer id, question id / task number, estimated_level) so traces are filterable and linkable back to the stored feedback.
