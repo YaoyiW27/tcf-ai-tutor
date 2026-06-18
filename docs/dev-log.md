@@ -96,6 +96,15 @@
 - Covered three regression checks: polite imparfait should not be flagged (`Je voulais...`), obvious plural/agreement errors should be detected (`des pomme`, `très gentils`), and a very weak short answer should not be over-scored.
 - First run passed 3/3. Runtime was roughly 50s for three real Claude-backed grading runs, reinforcing that LLM evals should stay small, targeted, and explainable at this stage.
 
+## 2026-06-17 Session 8
+
+### Grader regression eval v1
+- Turned the eval script into a small CLI tool while preserving the default behavior of running the full suite.
+- Added `--list` to inspect available cases without making Claude calls, and `--case <name>` to run one targeted regression case.
+- Case names are derived directly from the eval definitions and validated by `argparse`, preventing accidental runs caused by misspelled names.
+- Added per-case runtime plus a summary with total runtime and failed case names.
+- Verified `--help`, `--list`, invalid-case handling, and Python compilation without spending API tokens.
+
 ## Next up
 - Langfuse, deepen tracing (now that the entry point is wired):
   - Attach trace metadata (answer id, question id / task number, estimated_level) so traces are filterable and linkable back to the stored feedback.
