@@ -3,13 +3,17 @@
 Run from backend/:
 
     .venv/bin/python -m scripts.eval_grader
+    .venv/bin/python -m scripts.eval_grader --list
+    .venv/bin/python -m scripts.eval_grader --case polite_imparfait
 
 This is intentionally a small, human-readable eval script, not a full test
 suite. It calls the real grader, so it requires ANTHROPIC_API_KEY in .env.
 """
 
+import argparse
 import asyncio
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Callable
 
 from app.graph import run_grader
@@ -108,16 +112,35 @@ CASES = [
 ]
 
 
-async def run_case(case: EvalCase) -> bool:
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run manual regression evals for the writing grader."
+    )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List available eval cases without calling the grader.",
+    )
+    parser.add_argument(
+        "--case",
+        choices=[case.name for case in CASES],
+        help="Run one eval case instead of the full suite.",
+    )
+    return parser.parse_args()
+
+
+async def run_case(case: EvalCase) -> tuple[bool, float]:
     print(f"\n=== {case.name} ===")
 
     question = make_question()
+    started_at = perf_counter()
     grade = await run_grader(question, case.content)
+    elapsed = perf_counter() - started_at
 
     passed, reason = case.check(grade)
     status = "PASS" if passed else "FAIL"
 
-    print(f"{status}: {reason}")
+    print(f"{status}: {reason} ({elapsed:.1f}s)")
     print(f"estimated_level: {grade.estimated_level}")
     print(f"nclc_level: {grade.nclc_level}")
     print(f"ecrit_band: {grade.ecrit_band}")
@@ -127,18 +150,40 @@ async def run_case(case: EvalCase) -> bool:
         print(f"  - {correction.original} -> {correction.correction}")
         print(f"    {correction.explanation}")
 
-    return passed
+    return passed, elapsed
 
 
 async def main() -> None:
+    args = parse_args()
+
+    if args.list:
+        print("Available eval cases:")
+        for case in CASES:
+            print(f"  - {case.name}")
+        return
+
+    selected_cases = (
+        [case for case in CASES if case.name == args.case]
+        if args.case
+        else CASES
+    )
+
     results = []
-    for case in CASES:
+    for case in selected_cases:
         results.append(await run_case(case))
 
-    passed = sum(results)
+    passed = sum(case_passed for case_passed, _ in results)
     total = len(results)
+    total_seconds = sum(elapsed for _, elapsed in results)
+    failed_names = [
+        case.name
+        for case, (case_passed, _) in zip(selected_cases, results)
+        if not case_passed
+    ]
 
-    print(f"\nSummary: {passed}/{total} passed")
+    print(f"\nSummary: {passed}/{total} passed in {total_seconds:.1f}s")
+    if failed_names:
+        print(f"Failed: {', '.join(failed_names)}")
 
     if passed != total:
         raise SystemExit(1)
