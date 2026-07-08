@@ -263,7 +263,7 @@ function GradeReport({ grade }: { grade: EssayGrade }) {
         </h3>
         {grade.corrections.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No corrections — nice work.
+            No corrections
           </p>
         ) : (
           <ul className="flex flex-col gap-3">
