@@ -105,15 +105,21 @@
 - Added per-case runtime plus a summary with total runtime and failed case names.
 - Verified `--help`, `--list`, invalid-case handling, and Python compilation without spending API tokens.
 
+## 2026-07-08 Session 9
+
+### Langfuse observability — business metadata on traces
+- Attached business dimensions to each grading trace so runs are filterable/sliceable in Langfuse: `user_id`, `question_id`, and the resulting `cefr_level`.
+- Threaded `user_id` / `question_id` into `run_grader` as optional keyword-only params (defaults keep the eval harness, which has neither, calling it unchanged); `grade_answer` passes `answer.user_id` / `answer.question_id`.
+- API gotcha: the Langfuse 4.7.1 client has no `update_current_trace()` (v3) or `update_current_observation()`, and `@observe()` doesn't take a `metadata` kwarg. `propagate_attributes` exists only as a module-level function, not a client method. The available equivalent is `update_current_span(metadata=...)` — checked `dir(get_client())` against the installed version before settling on it.
+- Since `@observe()` creates a span observation, all three fields go into the metadata dict on that root span, set in one call after the graph completes (ids known up front, CEFR only known post-graph). No-op when tracing is disabled.
+- Marked Phase 5 complete in README, scoped to **Langfuse LLM tracing**. A standalone OpenTelemetry pipeline (collector + exporter) is deferred to Phase 6, where it folds into the self-hosted Langfuse-on-K8s work.
+
 ## Next up
-- Langfuse, deepen tracing (now that the entry point is wired):
-  - Attach trace metadata (answer id, question id / task number, estimated_level) so traces are filterable and linkable back to the stored feedback.
-  - Verify end-to-end against a real Langfuse project; decide cloud vs self-hosted (self-host is Docker → folds into Phase 6).
-  - Revisit flush strategy: per-run flush is fine at current volume; switch to background-exporter-only (flush on app shutdown) if it adds latency.
-- Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI (per-node Langfuse spans above will show where the time goes)
-- Phase 3: Speaking agent (Whisper + LangGraph + TTS)
-- Future: self-host Langfuse on K8s via Helm chart (Phase 6)
-- Expand seed questions to 15-20
+- Expand seed questions from 3 to 15-20.
+- Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI (per-node Langfuse spans will show where the time goes).
+- Phase 3: Speaking agent (Whisper + LangGraph + TTS).
+- Future: scoring reference RAG — embed official CEFR rubrics + sample essays into pgvector, retrieve in the `score` node prompt to ground grading decisions in reference material.
+- Future (Phase 6): self-host Langfuse on K8s via Helm chart, plus a full OpenTelemetry pipeline (collector + exporter).
 
 ## Notes
 - Two-terminal workflow established: one for backend (uvicorn), one for everything else.
