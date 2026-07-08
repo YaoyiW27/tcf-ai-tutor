@@ -17,7 +17,9 @@ from sqlalchemy import select
 from app.db import async_session_factory
 from app.models import DifficultyLevel, ExamSection, Question
 
-# Three sample TCF Canada "Expression écrite" tasks (Tâches 1–3).
+# Sample TCF Canada "Expression écrite" tasks (Tâches 1–3).
+# Idempotency is keyed on (exam_section, task_number, source), so every
+# question sharing a task_number must use a distinct source.
 SAMPLE_QUESTIONS: list[dict] = [
     {
         "exam_section": ExamSection.writing,
@@ -76,6 +78,241 @@ SAMPLE_QUESTIONS: list[dict] = [
         "word_count_max": 180,
         "difficulty_level": DifficultyLevel.B2,
         "source": "Opal",
+    },
+    # --- Tâche 1 (A2, 60–120 mots) : situations du quotidien ---
+    {
+        "exam_section": ExamSection.writing,
+        "task_number": 1,
+        "prompt": (
+            "Vous organisez une fête pour votre anniversaire samedi prochain. "
+            "Vous écrivez un message à un ami francophone pour l'inviter."
+        ),
+        "instructions": (
+            "Rédigez un message d'environ 60 à 120 mots. Indiquez la date, "
+            "l'heure et le lieu, expliquez ce que vous allez faire ensemble et "
+            "demandez-lui de confirmer sa présence."
+        ),
+        "time_limit_seconds": 900,
+        "word_count_min": 60,
+        "word_count_max": 120,
+        "difficulty_level": DifficultyLevel.A2,
+        "source": "Didier",
+    },
+    {
+        "exam_section": ExamSection.writing,
+        "task_number": 1,
+        "prompt": (
+            "Un ami francophone vous a hébergé pendant vos vacances dans sa "
+            "ville. De retour chez vous, vous lui écrivez un message pour le "
+            "remercier."
+        ),
+        "instructions": (
+            "Rédigez un message d'environ 60 à 120 mots. Remerciez-le de son "
+            "accueil, dites ce que vous avez préféré pendant votre séjour et "
+            "proposez de le recevoir à votre tour."
+        ),
+        "time_limit_seconds": 900,
+        "word_count_min": 60,
+        "word_count_max": 120,
+        "difficulty_level": DifficultyLevel.A2,
+        "source": "Hachette",
+    },
+    {
+        "exam_section": ExamSection.writing,
+        "task_number": 1,
+        "prompt": (
+            "Un ami français va bientôt s'installer dans votre quartier. Vous "
+            "lui écrivez un message pour lui décrire l'endroit où vous habitez."
+        ),
+        "instructions": (
+            "Rédigez un message d'environ 60 à 120 mots. Décrivez votre "
+            "quartier, présentez les commerces et les transports disponibles "
+            "et dites ce que vous préférez dans cet endroit."
+        ),
+        "time_limit_seconds": 900,
+        "word_count_min": 60,
+        "word_count_max": 120,
+        "difficulty_level": DifficultyLevel.A2,
+        "source": "CLE",
+    },
+    {
+        "exam_section": ExamSection.writing,
+        "task_number": 1,
+        "prompt": (
+            "Vous souhaitez vous inscrire à un cours de cuisine dans une "
+            "association francophone. Vous écrivez un message pour demander "
+            "des informations."
+        ),
+        "instructions": (
+            "Rédigez un message d'environ 60 à 120 mots. Présentez-vous, posez "
+            "des questions sur les horaires et le tarif et demandez comment "
+            "vous inscrire."
+        ),
+        "time_limit_seconds": 900,
+        "word_count_min": 60,
+        "word_count_max": 120,
+        "difficulty_level": DifficultyLevel.A2,
+        "source": "Nathan",
+    },
+    # --- Tâche 2 (B1, 120–150 mots) : textes d'opinion ---
+    {
+        "exam_section": ExamSection.writing,
+        "task_number": 2,
+        "prompt": (
+            "Un magazine francophone pour les jeunes publie une rubrique "
+            "d'opinion. Cette semaine, la question posée aux lecteurs est : "
+            "« Les réseaux sociaux nous rapprochent-ils vraiment des autres ? » "
+            "Vous décidez d'y répondre."
+        ),
+        "instructions": (
+            "Rédigez un texte d'environ 120 à 150 mots. Donnez votre opinion "
+            "sur les réseaux sociaux, présentez leurs avantages et leurs "
+            "inconvénients et illustrez votre point de vue par des exemples."
+        ),
+        "time_limit_seconds": 1200,
+        "word_count_min": 120,
+        "word_count_max": 150,
+        "difficulty_level": DifficultyLevel.B1,
+        "source": "Didier",
+    },
+    {
+        "exam_section": ExamSection.writing,
+        "task_number": 2,
+        "prompt": (
+            "Le site Internet de votre entreprise invite les employés à donner "
+            "leur avis sur le télétravail. Vous rédigez un commentaire pour "
+            "partager votre point de vue."
+        ),
+        "instructions": (
+            "Rédigez un texte d'environ 120 à 150 mots. Expliquez si vous "
+            "préférez travailler à distance ou au bureau, donnez au moins deux "
+            "raisons et appuyez-vous sur votre expérience."
+        ),
+        "time_limit_seconds": 1200,
+        "word_count_min": 120,
+        "word_count_max": 150,
+        "difficulty_level": DifficultyLevel.B1,
+        "source": "Hachette",
+    },
+    {
+        "exam_section": ExamSection.writing,
+        "task_number": 2,
+        "prompt": (
+            "La mairie de votre ville mène une enquête auprès des habitants sur "
+            "les transports en commun. Vous écrivez un message pour donner "
+            "votre avis."
+        ),
+        "instructions": (
+            "Rédigez un texte d'environ 120 à 150 mots. Dites si vous utilisez "
+            "souvent les transports en commun, expliquez ce que vous en pensez "
+            "et proposez des améliorations."
+        ),
+        "time_limit_seconds": 1200,
+        "word_count_min": 120,
+        "word_count_max": 150,
+        "difficulty_level": DifficultyLevel.B1,
+        "source": "CLE",
+    },
+    {
+        "exam_section": ExamSection.writing,
+        "task_number": 2,
+        "prompt": (
+            "Un forum en ligne pose la question suivante à ses membres : "
+            "« Faut-il commencer à apprendre une langue étrangère dès "
+            "l'enfance ? » Vous décidez de réagir."
+        ),
+        "instructions": (
+            "Rédigez un texte d'environ 120 à 150 mots. Donnez votre opinion, "
+            "expliquez pourquoi il est utile d'apprendre une langue étrangère "
+            "et donnez des exemples tirés de votre expérience."
+        ),
+        "time_limit_seconds": 1200,
+        "word_count_min": 120,
+        "word_count_max": 150,
+        "difficulty_level": DifficultyLevel.B1,
+        "source": "Nathan",
+    },
+    # --- Tâche 3 (B2, 120–180 mots) : textes argumentatifs ---
+    {
+        "exam_section": ExamSection.writing,
+        "task_number": 3,
+        "prompt": (
+            "Sur un forum consacré à l'éducation, deux internautes s'opposent "
+            "sur l'usage des outils numériques à l'école. L'un estime qu'ils "
+            "favorisent l'apprentissage, l'autre qu'ils nuisent à la "
+            "concentration des élèves. Vous réagissez en donnant votre opinion "
+            "argumentée."
+        ),
+        "instructions": (
+            "Rédigez un texte argumentatif d'environ 120 à 180 mots. Comparez "
+            "les deux points de vue, prenez position et justifiez votre "
+            "opinion avec des exemples."
+        ),
+        "time_limit_seconds": 1200,
+        "word_count_min": 120,
+        "word_count_max": 180,
+        "difficulty_level": DifficultyLevel.B2,
+        "source": "Didier",
+    },
+    {
+        "exam_section": ExamSection.writing,
+        "task_number": 3,
+        "prompt": (
+            "Un article en ligne suscite un débat : faut-il interdire les "
+            "voitures dans les centres-villes pour protéger l'environnement ? "
+            "Dans les commentaires, les avis sont partagés. Vous réagissez en "
+            "donnant votre opinion argumentée."
+        ),
+        "instructions": (
+            "Rédigez un texte argumentatif d'environ 120 à 180 mots. Présentez "
+            "les arguments pour et contre, prenez position et appuyez votre "
+            "opinion sur des exemples concrets."
+        ),
+        "time_limit_seconds": 1200,
+        "word_count_min": 120,
+        "word_count_max": 180,
+        "difficulty_level": DifficultyLevel.B2,
+        "source": "Hachette",
+    },
+    {
+        "exam_section": ExamSection.writing,
+        "task_number": 3,
+        "prompt": (
+            "Sur un forum professionnel, un débat oppose deux internautes sur "
+            "l'équilibre entre vie professionnelle et vie privée. L'un pense "
+            "que l'entreprise doit s'en préoccuper, l'autre que cela relève de "
+            "chacun. Vous réagissez en donnant votre opinion argumentée."
+        ),
+        "instructions": (
+            "Rédigez un texte argumentatif d'environ 120 à 180 mots. Comparez "
+            "les deux points de vue, prenez position et justifiez votre "
+            "opinion avec des exemples."
+        ),
+        "time_limit_seconds": 1200,
+        "word_count_min": 120,
+        "word_count_max": 180,
+        "difficulty_level": DifficultyLevel.B2,
+        "source": "CLE",
+    },
+    {
+        "exam_section": ExamSection.writing,
+        "task_number": 3,
+        "prompt": (
+            "Un magazine en ligne publie une tribune sur la diversité "
+            "culturelle en milieu de travail. Les lecteurs débattent : "
+            "certains y voient une richesse, d'autres une source de "
+            "difficultés. Vous réagissez en donnant votre opinion argumentée."
+        ),
+        "instructions": (
+            "Rédigez un texte argumentatif d'environ 120 à 180 mots. Comparez "
+            "les deux points de vue, prenez position et justifiez votre "
+            "opinion avec des exemples concrets."
+        ),
+        "time_limit_seconds": 1200,
+        "word_count_min": 120,
+        "word_count_max": 180,
+        "difficulty_level": DifficultyLevel.B2,
+        "source": "Nathan",
     },
 ]
 
