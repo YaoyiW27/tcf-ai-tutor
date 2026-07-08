@@ -114,8 +114,15 @@
 - Since `@observe()` creates a span observation, all three fields go into the metadata dict on that root span, set in one call after the graph completes (ids known up front, CEFR only known post-graph). No-op when tracing is disabled.
 - Marked Phase 5 complete in README, scoped to **Langfuse LLM tracing**. A standalone OpenTelemetry pipeline (collector + exporter) is deferred to Phase 6, where it folds into the self-hosted Langfuse-on-K8s work.
 
+## 2026-07-08 Session 10
+
+### Expanded writing seed questions (3 → 15)
+- Added 12 new "Expression écrite" prompts (4 per task), keeping the existing levels and word-count ranges: Tâche 1 (A2, 60–120), Tâche 2 (B1, 120–150), Tâche 3 (B2, 120–180). Existing 3 questions untouched.
+- Topics — T1: birthday invitation, thank-you after a stay, describing your neighbourhood, requesting course info. T2 (opinion): social media, remote work, public transport, learning a language early. T3 (argumentative, forum-debate style like the existing one): digital tools in education, car bans for the environment, work-life balance, cultural diversity at work.
+- Gotcha: idempotency is keyed on `(exam_section, task_number, source)`, so multiple questions sharing a task_number must use distinct sources — otherwise all but one silently skip on insert. Gave each question a unique `source`; documented the constraint in a comment.
+- Validated the literal before seeding (15 rows, 5 per task, all dedup keys unique, consistent fields/ranges), then seeded successfully.
+
 ## Next up
-- Expand seed questions from 3 to 15-20.
 - Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI (per-node Langfuse spans will show where the time goes).
 - Phase 3: Speaking agent (Whisper + LangGraph + TTS).
 - Future: scoring reference RAG — embed official CEFR rubrics + sample essays into pgvector, retrieve in the `score` node prompt to ground grading decisions in reference material.
