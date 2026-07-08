@@ -213,18 +213,44 @@ _graph = _build_graph()
 
 
 @observe()
-async def run_grader(question: Question, content: str) -> EssayGrade:
+async def run_grader(
+    question: Question,
+    content: str,
+    *,
+    user_id: str | None = None,
+    question_id: str | None = None,
+) -> EssayGrade:
     """Invoke the grading pipeline and return the validated :class:`EssayGrade`.
 
     Wrapped in Langfuse's ``@observe`` so each grade is one top-level trace
     (individual nodes are not instrumented yet — just this entry point).
+
+    ``user_id`` / ``question_id`` (when supplied by the caller) plus the
+    resulting CEFR level are attached to the trace as business dimensions so
+    grades can be sliced per user / per question in Langfuse. Both ids are
+    optional so the eval harness, which has neither, calls this unchanged.
     """
+    langfuse = get_client()
     start = time.perf_counter()
     try:
         final_state = await _graph.ainvoke({"question": question, "content": content})
         logger.info("[grade] run_grader total took %.1fs", time.perf_counter() - start)
-        return final_state["result"]
+        result: EssayGrade = final_state["result"]
+        # Attach business dimensions to this trace's root observation (the span
+        # @observe() created for run_grader). The Langfuse 4.7.1 client has no
+        # update_current_trace()/update_current_observation(); update_current_span()
+        # is the available equivalent, and it only takes `metadata`, so user/question
+        # ids and the CEFR level all go in the metadata dict. The ids are known up
+        # front but the CEFR level only after the graph completes, so we set all
+        # three in one call here. No-op when tracing is disabled.
+        metadata: dict[str, str] = {"cefr_level": result.estimated_level}
+        if user_id is not None:
+            metadata["user_id"] = str(user_id)
+        if question_id is not None:
+            metadata["question_id"] = str(question_id)
+        langfuse.update_current_span(metadata=metadata)
+        return result
     finally:
         # Flush this run's trace once the graph has finished (success or error).
         # No-op when tracing is disabled.
-        get_client().flush()
+        langfuse.flush()

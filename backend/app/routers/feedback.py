@@ -97,7 +97,12 @@ async def grade_answer(
     question = await session.get(Question, answer.question_id)
 
     try:
-        grade = await graph.run_grader(question, answer.content)
+        grade = await graph.run_grader(
+            question,
+            answer.content,
+            user_id=str(answer.user_id),
+            question_id=str(answer.question_id),
+        )
     except RuntimeError:
         raise HTTPException(status_code=503, detail="Grader not configured (no API key)")
     except anthropic.APIError as exc:
