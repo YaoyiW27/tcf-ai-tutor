@@ -122,9 +122,22 @@
 - Gotcha: idempotency is keyed on `(exam_section, task_number, source)`, so multiple questions sharing a task_number must use distinct sources — otherwise all but one silently skip on insert. Gave each question a unique `source`; documented the constraint in a comment.
 - Validated the literal before seeding (15 rows, 5 per task, all dedup keys unique, consistent fields/ranges), then seeded successfully.
 
+## 2026-07-11 Session 11
+
+### Phase 3 kickoff — Speaking agent, slice 1: monologue grading
+- Built the speaking equivalent of the Phase 2 flow: **audio upload → Whisper STT → speaking LangGraph grader → structured feedback.** Chose monologue grading first (over jumping to a live conversational examiner) to reuse the established architecture; TTS + multi-turn dialogue deferred.
+- STT: `app/transcription.py` wraps OpenAI Whisper (`whisper-1`, `language=fr`), lazy client mirroring `grader._get_client()`. Added `openai` + `python-multipart` deps, `OPENAI_API_KEY` to config/.env.example. App still boots without the key; the upload endpoint returns 503.
+- Grader: `app/speaking_grader.py` + `app/speaking_graph.py` mirror `grader.py`/`graph.py` (same fan-out/fan-in: `score ∥ find_errors → verify_errors → assemble`). Oral rubric = task_fulfillment / coherence / **lexis** / grammar. Reused `Correction`, `CEFRLevel`, the structured-call helper, and the `verify_errors` judge unchanged. Prompts are tuned for speech: fillers/false starts/repetitions are treated as normal, not errors.
+- **Pronunciation is deliberately not graded** — a transcript loses the acoustic signal, so the prompt says so and the learner comment reminds them. Documented as a known limitation.
+- No DB migration: transcript → `answers.content`, grade → `ai_feedback` (oral dims + `estimated_level` in the JSONB, same trick writing uses). New `/speaking` router (create/grade/read) mirrors the writing routers; a speaking answer is distinguished purely by its question's `exam_section`, and the routes reject a non-speaking question (400).
+- Observability continues Phase 5: `@observe()` on `run_speaking_grader` + nodes, generation logging, trace metadata (user/question/CEFR). STT is its own trace (upload and grade are separate requests), logged as a `transcribe` generation.
+- Seeded 3 Expression orale tasks (Tâches 1–3, A2/B1/B2). `word_count_min/max` are N/A for speech → set to 0; `time_limit_seconds` holds the speaking duration. Added `scripts/eval_speaking_grader.py` (transcript-based, no audio/OpenAI needed).
+- Verified end-to-end: eval 3/3 pass (disfluencies not flagged; "les enfant"/"intéressants" agreement errors caught; weak answer not over-scored). Live audio path with a `say`-generated French clip: upload transcribed correctly → graded A2 with the pronunciation caveat in the comment → read back identical. Error paths confirmed: re-grade 409, non-speaking question 400, missing answer 404.
+
 ## Next up
+- Frontend: speaking practice UI with in-browser audio recording (MediaRecorder) wired to the `/speaking` endpoints.
+- Phase 3 next slices: TTS + conversational multi-turn examiner; optional Whisper `verbose_json` segment timings → words-per-minute fluency signal; persist audio; confirm the oral score bands against the official grid.
 - Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI (per-node Langfuse spans will show where the time goes).
-- Phase 3: Speaking agent (Whisper + LangGraph + TTS).
 - Future: scoring reference RAG — embed official CEFR rubrics + sample essays into pgvector, retrieve in the `score` node prompt to ground grading decisions in reference material.
 - Future (Phase 6): self-host Langfuse on K8s via Helm chart, plus a full OpenTelemetry pipeline (collector + exporter).
 

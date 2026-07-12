@@ -65,3 +65,14 @@ implementation time based on real constraints.
 
 Langfuse + OpenTelemetry will be added once the basic flow is
 working. They are not on the v1 critical path.
+
+## Speaking (Phase 3) — reuses this flow
+
+The Speaking ("Expression orale") path mirrors the flow above with a
+speech-to-text step in front: **audio upload → Whisper STT (transcript) →
+speaking LangGraph grader → `ai_feedback`.** The grader is a direct mirror of
+the writing grader (same fan-out/fan-in graph, shared `Correction` / verify
+step) with an oral rubric, and it reuses the existing `answers` / `ai_feedback`
+tables (transcript in `answers.content`; no migration). Pronunciation is not
+graded — a transcript carries no acoustic signal. See `app/transcription.py`,
+`app/speaking_grader.py`, `app/speaking_graph.py`, `app/routers/speaking.py`.
