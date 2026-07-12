@@ -314,6 +314,68 @@ SAMPLE_QUESTIONS: list[dict] = [
         "difficulty_level": DifficultyLevel.B2,
         "source": "Nathan",
     },
+    # --- Expression orale (Tâches 1–3) ---
+    # word_count_min/max don't apply to speech, but the columns are NOT NULL, so
+    # they are set to 0 (= N/A). time_limit_seconds holds the approximate speaking
+    # duration for each task. exam_section=speaking keeps these from colliding
+    # with the writing tasks under the (section, task_number, source) dedup key.
+    {
+        "exam_section": ExamSection.speaking,
+        "task_number": 1,
+        "prompt": (
+            "L'examinateur souhaite faire connaissance avec vous. Présentez-vous "
+            "et parlez de votre vie quotidienne."
+        ),
+        "instructions": (
+            "Répondez à l'oral pendant environ 2 minutes, sans préparation. "
+            "Parlez de vous, de votre travail ou de vos études, de vos loisirs "
+            "et de vos projets."
+        ),
+        "time_limit_seconds": 120,
+        "word_count_min": 0,
+        "word_count_max": 0,
+        "difficulty_level": DifficultyLevel.A2,
+        "source": "Réussir",
+    },
+    {
+        "exam_section": ExamSection.speaking,
+        "task_number": 2,
+        "prompt": (
+            "Vous venez de vous installer dans une nouvelle ville et vous "
+            "souhaitez vous inscrire à la médiathèque municipale. Vous vous "
+            "adressez à un employé pour obtenir des renseignements."
+        ),
+        "instructions": (
+            "Après 2 minutes de préparation, jouez la situation pendant environ "
+            "3 minutes 30. Posez des questions pour obtenir toutes les "
+            "informations utiles : horaires, conditions d'inscription, documents "
+            "à fournir et services proposés."
+        ),
+        "time_limit_seconds": 210,
+        "word_count_min": 0,
+        "word_count_max": 0,
+        "difficulty_level": DifficultyLevel.B1,
+        "source": "Réussir",
+    },
+    {
+        "exam_section": ExamSection.speaking,
+        "task_number": 3,
+        "prompt": (
+            "« Les écrans occupent une place de plus en plus importante dans la "
+            "vie des enfants. » Donnez votre opinion sur ce sujet et défendez "
+            "votre point de vue."
+        ),
+        "instructions": (
+            "Après 2 minutes de préparation, exprimez-vous pendant environ 4 "
+            "minutes 30. Présentez votre point de vue de façon structurée, "
+            "développez vos arguments et illustrez-les par des exemples concrets."
+        ),
+        "time_limit_seconds": 270,
+        "word_count_min": 0,
+        "word_count_max": 0,
+        "difficulty_level": DifficultyLevel.B2,
+        "source": "Réussir",
+    },
 ]
 
 
