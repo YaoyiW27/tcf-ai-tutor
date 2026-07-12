@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     database_url: str
     anthropic_api_key: str | None = None
 
+    # OpenAI API key, used only for Whisper speech-to-text on the Speaking path
+    # (POST /speaking/answers). Read here for the same reason as
+    # ANTHROPIC_API_KEY above (pydantic-settings loads .env into this object,
+    # not os.environ). Optional: the app still boots without it; the speaking
+    # upload endpoint returns 503 when it's unset.
+    openai_api_key: str | None = None
+
     # Langfuse (LLM observability). Optional — tracing is disabled when unset.
     # Read here for the same reason as ANTHROPIC_API_KEY above: pydantic-settings
     # loads .env into this object, not os.environ, so the SDK can't see keys that
