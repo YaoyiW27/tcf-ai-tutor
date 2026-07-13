@@ -143,10 +143,10 @@
 - `src/lib/api.ts`: added `SpeakingAnswerOut` / `SpeakingGrade` types + `submitSpeakingAnswer` (multipart FormData, no explicit Content-Type so the browser sets the boundary) + `gradeSpeakingAnswer`, reusing `errorFrom`.
 - Home page (`src/app/page.tsx`) now routes by `exam_section` (speaking → `/speaking/[id]`, writing → `/questions/[id]`) — previously every question opened the writing text area — and groups the 18 questions under Writing / Speaking with section-aware metadata (speaking shows duration + a badge, not "0–0 words").
 - Gotcha: the `react-hooks/set-state-in-effect` lint rule rejected detecting `MediaRecorder` support via `setState` in an effect. Used `useSyncExternalStore` (server snapshot = supported, client snapshot = real probe) instead — no effect, no hydration mismatch.
-- Verified: `npm run lint` clean, `npm run build` passes (TypeScript + all routes: `/`, `/speaking/[id]`, `/questions/[id]`). Dev-server smoke: all routes 200, speaking shell SSRs, no runtime errors, writing flow unchanged. The record→transcribe→grade flow itself needs a manual browser check with a real mic (backend audio path already verified in Session 11).
+- Verified: `npm run lint` clean, `npm run build` passes (TypeScript + all routes: `/`, `/speaking/[id]`, `/questions/[id]`). Dev-server smoke: all routes 200, speaking shell SSRs, no runtime errors, writing flow unchanged.
+- Manual browser pass (real mic, Chrome): record → Stop → playback → Submit → transcript → oral grade all working end-to-end; writing flow unchanged. Speaking UI slice confirmed complete.
 
 ## Next up
-- Manual browser pass of the speaking record→grade flow with a real mic (mic-permission + unsupported-browser states).
 - Phase 3 next slices: TTS + conversational multi-turn examiner; optional Whisper `verbose_json` segment timings → words-per-minute fluency signal; persist audio; confirm the oral score bands against the official grid.
 - Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI (per-node Langfuse spans will show where the time goes).
 - Future: scoring reference RAG — embed official CEFR rubrics + sample essays into pgvector, retrieve in the `score` node prompt to ground grading decisions in reference material.
