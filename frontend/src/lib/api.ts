@@ -75,6 +75,43 @@ export type EssayGrade = {
   created_at: string;
 };
 
+/** Shape returned by `POST /speaking/answers` (matches backend SpeakingAnswerOut). */
+export type SpeakingAnswerOut = {
+  id: string;
+  question_id: string;
+  /** The Whisper transcript of the uploaded audio. */
+  transcript: string;
+};
+
+/** The four oral rubric dimensions, each scored 0–6 (lexis, not vocabulary). */
+export type SpeakingDimensionScores = {
+  task_fulfillment: number;
+  coherence: number;
+  lexis: number;
+  grammar: number;
+};
+
+/**
+ * Grade returned by `POST /speaking/answers/{id}/grade` (matches backend
+ * SpeakingFeedbackOut). Like EssayGrade but with oral dimensions and the
+ * "expression orale" band instead of the écrite one. Pronunciation is not
+ * graded — the assessment is transcript-based.
+ */
+export type SpeakingGrade = {
+  id: string;
+  answer_id: string;
+  total_score: number;
+  estimated_level: DifficultyLevel;
+  /** Official NCLC level for estimated_level, e.g. "NCLC 7" (null if unknown). */
+  nclc_level: string | null;
+  /** Official TCF "expression orale" band, e.g. "10–11" (null if unknown). */
+  oral_band: string | null;
+  dimension_scores: SpeakingDimensionScores;
+  corrections: Correction[];
+  overall_comment: string;
+  created_at: string;
+};
+
 /**
  * Throw an Error carrying the backend's `detail` message when present, so the
  * UI can show why a request failed (404 / 409 / 502 / 503) instead of a bare
@@ -143,6 +180,50 @@ export async function gradeAnswer(answerId: string): Promise<EssayGrade> {
   const res = await fetch(`${API_BASE_URL}/answers/${answerId}/grade`, {
     method: "POST",
   });
+  if (!res.ok) {
+    throw await errorFrom(res, "Grading failed");
+  }
+  return res.json();
+}
+
+/**
+ * Upload a recorded spoken answer for a question; the backend transcribes it
+ * with Whisper and stores the transcript. Returns the stored answer (with its
+ * id and transcript).
+ *
+ * Sent as multipart/form-data — deliberately no explicit Content-Type header so
+ * the browser sets the multipart boundary itself.
+ */
+export async function submitSpeakingAnswer(
+  questionId: string,
+  audio: Blob,
+  filename: string,
+): Promise<SpeakingAnswerOut> {
+  const form = new FormData();
+  form.append("question_id", questionId);
+  form.append("audio", audio, filename);
+  const res = await fetch(`${API_BASE_URL}/speaking/answers`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    throw await errorFrom(res, "POST /speaking/answers failed");
+  }
+  return res.json();
+}
+
+/**
+ * Run the AI grader over a stored speaking answer and return the grade.
+ * Slow on purpose (several serial Claude calls) — call this behind a loading
+ * state.
+ */
+export async function gradeSpeakingAnswer(
+  answerId: string,
+): Promise<SpeakingGrade> {
+  const res = await fetch(
+    `${API_BASE_URL}/speaking/answers/${answerId}/grade`,
+    { method: "POST" },
+  );
   if (!res.ok) {
     throw await errorFrom(res, "Grading failed");
   }
