@@ -134,8 +134,19 @@
 - Seeded 3 Expression orale tasks (Tâches 1–3, A2/B1/B2). `word_count_min/max` are N/A for speech → set to 0; `time_limit_seconds` holds the speaking duration. Added `scripts/eval_speaking_grader.py` (transcript-based, no audio/OpenAI needed).
 - Verified end-to-end: eval 3/3 pass (disfluencies not flagged; "les enfant"/"intéressants" agreement errors caught; weak answer not over-scored). Live audio path with a `say`-generated French clip: upload transcribed correctly → graded A2 with the pronunciation caveat in the comment → read back identical. Error paths confirmed: re-grade 409, non-speaking question 400, missing answer 404.
 
+## 2026-07-12 Session 12
+
+### Phase 3 slice 2 — Speaking UI (browser audio recording)
+- Wired the frontend to the `/speaking` endpoints: record a spoken answer with `MediaRecorder` → upload → show the Whisper transcript → show the oral grade. Mirrors the writing page's submit→grade→feedback UX.
+- New `src/lib/use-audio-recorder.ts` hook: `getUserMedia` + `MediaRecorder`, elapsed timer, object-URL playback, mic-track + URL cleanup on stop/reset/unmount. Picks a Whisper-friendly container via `isTypeSupported` (webm → mp4 for Safari → ogg → default) and exposes the matching filename extension for the upload.
+- New `src/app/speaking/[id]/page.tsx`: recorder controls (Record/Stop/playback/Re-record) + a two-step Submit (`transcribing` → `grading` → `done`) that surfaces the transcript before the grade. `SpeakingGradeReport` mirrors the writing report with oral dims (lexis) and the "Expression orale" band.
+- `src/lib/api.ts`: added `SpeakingAnswerOut` / `SpeakingGrade` types + `submitSpeakingAnswer` (multipart FormData, no explicit Content-Type so the browser sets the boundary) + `gradeSpeakingAnswer`, reusing `errorFrom`.
+- Home page (`src/app/page.tsx`) now routes by `exam_section` (speaking → `/speaking/[id]`, writing → `/questions/[id]`) — previously every question opened the writing text area — and groups the 18 questions under Writing / Speaking with section-aware metadata (speaking shows duration + a badge, not "0–0 words").
+- Gotcha: the `react-hooks/set-state-in-effect` lint rule rejected detecting `MediaRecorder` support via `setState` in an effect. Used `useSyncExternalStore` (server snapshot = supported, client snapshot = real probe) instead — no effect, no hydration mismatch.
+- Verified: `npm run lint` clean, `npm run build` passes (TypeScript + all routes: `/`, `/speaking/[id]`, `/questions/[id]`). Dev-server smoke: all routes 200, speaking shell SSRs, no runtime errors, writing flow unchanged. The record→transcribe→grade flow itself needs a manual browser check with a real mic (backend audio path already verified in Session 11).
+
 ## Next up
-- Frontend: speaking practice UI with in-browser audio recording (MediaRecorder) wired to the `/speaking` endpoints.
+- Manual browser pass of the speaking record→grade flow with a real mic (mic-permission + unsupported-browser states).
 - Phase 3 next slices: TTS + conversational multi-turn examiner; optional Whisper `verbose_json` segment timings → words-per-minute fluency signal; persist audio; confirm the oral score bands against the official grid.
 - Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI (per-node Langfuse spans will show where the time goes).
 - Future: scoring reference RAG — embed official CEFR rubrics + sample essays into pgvector, retrieve in the `score` node prompt to ground grading decisions in reference material.

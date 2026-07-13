@@ -100,7 +100,7 @@ Open **http://localhost:3000** — the home page fetches and renders the questio
 - [x] Phase 2: Writing AI Grader (LangGraph multi-node pipeline) — includes the multi-node orchestration originally scoped as Phase 4
 - [~] Phase 3: Speaking Voice Agent — in progress
   - [x] Monologue grading: audio upload → Whisper STT → speaking LangGraph grader → feedback
-  - [ ] Frontend audio recording UI
+  - [x] Frontend audio recording UI (MediaRecorder → transcript → oral grade)
   - [ ] Conversational examiner (TTS + multi-turn dialogue)
 - [x] Phase 5: Observability (Langfuse LLM tracing)
 - [ ] Phase 6: Containerization & deployment
