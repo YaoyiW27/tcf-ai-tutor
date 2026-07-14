@@ -4,7 +4,7 @@
 
 ## Stack
 
-**Backend:** FastAPI · PostgreSQL · SQLAlchemy · Alembic · LangGraph · Anthropic · OpenAI Whisper (STT)
+**Backend:** FastAPI · PostgreSQL · SQLAlchemy · Alembic · LangGraph · Anthropic · OpenAI Whisper (STT) + TTS
 **Frontend:** Next.js · shadcn/ui · Tailwind · TypeScript
 
 ---
@@ -101,7 +101,7 @@ Open **http://localhost:3000** — the home page fetches and renders the questio
 - [~] Phase 3: Speaking Voice Agent — in progress
   - [x] Monologue grading: audio upload → Whisper STT → speaking LangGraph grader → feedback
   - [x] Frontend audio recording UI (MediaRecorder → transcript → oral grade)
-  - [ ] Conversational examiner (TTS + multi-turn dialogue)
+  - [~] Conversational examiner (TTS + multi-turn dialogue) — backend done; browser UI next
 - [x] Phase 5: Observability (Langfuse LLM tracing)
 - [ ] Phase 6: Containerization & deployment
   - Planned: self-hosted Langfuse on Kubernetes (Helm), with a full OpenTelemetry pipeline (collector + exporter)

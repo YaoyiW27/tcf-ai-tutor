@@ -76,3 +76,15 @@ step) with an oral rubric, and it reuses the existing `answers` / `ai_feedback`
 tables (transcript in `answers.content`; no migration). Pronunciation is not
 graded — a transcript carries no acoustic signal. See `app/transcription.py`,
 `app/speaking_grader.py`, `app/speaking_graph.py`, `app/routers/speaking.py`.
+
+### Conversational examiner (Phase 3, turn-based)
+
+A multi-turn variant: the examiner speaks (TTS) → candidate answers (STT) →
+examiner follows up → the dialogue is graded. It's turn-based over HTTP with a
+persisted `speaking_sessions` row (dialogue `turns` in JSONB) as the source of
+truth — each turn is one request (`POST /speaking/sessions[/turn|/finish]`).
+Examiner audio is synthesised per request (OpenAI TTS) and returned as base64;
+no audio is stored. On `finish` the candidate's turns are graded by the same
+`run_speaking_grader`, converging onto the same `answers` + `ai_feedback` rows.
+This is the project's first schema change since v1 (an additive migration). See
+`app/examiner.py`, `app/tts.py`, `app/routers/conversation.py`.

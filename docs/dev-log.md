@@ -146,8 +146,20 @@
 - Verified: `npm run lint` clean, `npm run build` passes (TypeScript + all routes: `/`, `/speaking/[id]`, `/questions/[id]`). Dev-server smoke: all routes 200, speaking shell SSRs, no runtime errors, writing flow unchanged.
 - Manual browser pass (real mic, Chrome): record → Stop → playback → Submit → transcript → oral grade all working end-to-end; writing flow unchanged. Speaking UI slice confirmed complete.
 
+## 2026-07-13 Session 13
+
+### Phase 3 slice 3 — Conversational examiner (backend, turn-based voice dialogue)
+- Built the "voice agent": examiner speaks a prompt (TTS) → candidate answers (mic → STT) → examiner asks follow-ups over several turns → the dialogue is graded. Turn-based over HTTP; the persisted session is the source of truth (LangGraph's Postgres checkpointer isn't installed, so pausing one graph between HTTP turns isn't available — and a per-turn LLM call is simpler anyway).
+- **First Alembic migration since schema v1**: new `speaking_sessions` table (`turns` JSONB, `answer_id` FK, status enum). Autogenerate missed dropping the enum on downgrade — added an explicit `Enum(...).drop()` so downgrade→upgrade round-trips (verified).
+- New `app/tts.py` (OpenAI `gpt-4o-mini-tts`, reuses `OPENAI_API_KEY`, mirrors `transcription.py`) and `app/examiner.py` (pure turn logic like `grader.py`): `opening()` + `next_turn()` as structured Claude calls; a `MAX_CANDIDATE_TURNS=5` cap forces termination regardless of the model.
+- New `app/routers/conversation.py`: `POST /speaking/sessions` (opening), `/turn` (multipart audio → STT → examiner reply → TTS), `/finish` (grade), `GET /sessions/{id}`. Examiner audio returned as base64 MP3 (no audio persisted). **Finish converges onto the monologue path**: builds an `answers` row from the candidate turns and reuses `run_speaking_grader` → `ai_feedback`, read back via the same `SpeakingFeedbackOut`. Factored `speaking_grader.feedback_fields()` so both routers share the grade→columns mapping.
+- Observability: each turn is one Langfuse trace (span → `transcribe` / `examiner` / `tts` generations) tagged with session/user/question; finish reuses the traced grader.
+- Gotcha: Anthropic requires `thinking.budget_tokens >= 1024` and `max_tokens > budget` — first cut used 512 and 400 → 400 error; bumped to 1024 / 1536.
+- Verified: `eval_examiner` (text-only) passes — natural French follow-ups, ends exactly at the 5-turn cap. Live loop with `say` clips: opening (valid 24kHz MP3) → 2 turns (accurate STT + contextual questions + audio) → finish graded A2 (reused grader) with `answer_id` linked → session read-back shows all turns. Error paths: re-finish 409, turn-after-finish 409, writing-question 400. Migration round-trips. Monologue + writing paths unaffected.
+
 ## Next up
-- Phase 3 next slices: TTS + conversational multi-turn examiner; optional Whisper `verbose_json` segment timings → words-per-minute fluency signal; persist audio; confirm the oral score bands against the official grid.
+- Frontend: conversational Speaking UI (play examiner audio, record answer, loop over turns, show the final grade) wired to `/speaking/sessions`.
+- Phase 3 leftovers: optional Whisper `verbose_json` segment timings → words-per-minute fluency signal; persist/replay dialogue audio; grading that weighs the examiner questions as context; confirm the oral score bands against the official grid.
 - Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI (per-node Langfuse spans will show where the time goes).
 - Future: scoring reference RAG — embed official CEFR rubrics + sample essays into pgvector, retrieve in the `score` node prompt to ground grading decisions in reference material.
 - Future (Phase 6): self-host Langfuse on K8s via Helm chart, plus a full OpenTelemetry pipeline (collector + exporter).
