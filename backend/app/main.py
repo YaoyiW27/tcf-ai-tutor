@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import answers, feedback, questions, speaking
+from app.routers import answers, conversation, feedback, questions, speaking
 
 app = FastAPI(title="TCF AI Tutor Backend")
 
@@ -16,6 +16,7 @@ app.include_router(questions.router)
 app.include_router(answers.router)
 app.include_router(feedback.router)
 app.include_router(speaking.router)
+app.include_router(conversation.router)
 
 
 @app.get("/health")

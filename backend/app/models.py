@@ -43,6 +43,11 @@ class AnswerStatus(str, enum.Enum):
     submitted = "submitted"
 
 
+class SpeakingSessionStatus(str, enum.Enum):
+    active = "active"
+    finished = "finished"
+
+
 def _uuid_pk() -> Mapped[uuid.UUID]:
     return mapped_column(
         UUID(as_uuid=True),
@@ -149,3 +154,44 @@ class AIFeedback(Base):
     )
 
     answer: Mapped["Answer"] = relationship(back_populates="feedback")
+
+
+class SpeakingSession(Base):
+    """One multi-turn spoken conversation with the AI examiner.
+
+    The dialogue is the source of truth for the turn-based Speaking agent:
+    ``turns`` is an ordered JSONB list of ``{role, text, turn_index}`` (role is
+    "examiner" or "candidate"). Examiner/candidate audio is not stored — audio
+    is transcribed (candidate) or synthesised and returned (examiner) per
+    request. On ``finish`` the candidate's turns are graded via the existing
+    speaking pipeline, which creates an ``answers`` row + ``ai_feedback``;
+    ``answer_id`` links to it so the grade can be read back.
+    """
+
+    __tablename__ = "speaking_sessions"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    question_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("questions.id"), nullable=False
+    )
+    status: Mapped[SpeakingSessionStatus] = mapped_column(
+        SAEnum(SpeakingSessionStatus, name="speaking_session_status"),
+        nullable=False,
+        default=SpeakingSessionStatus.active,
+    )
+    turns: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    answer_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("answers.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

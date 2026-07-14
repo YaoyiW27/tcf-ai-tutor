@@ -175,17 +175,7 @@ async def grade_speaking_answer(
     except anthropic.APIError as exc:
         raise HTTPException(status_code=502, detail=f"Grader call failed: {exc}")
 
-    dimension_scores = {
-        "task_fulfillment": grade.task_fulfillment,
-        "coherence": grade.coherence,
-        "lexis": grade.lexis,
-        "grammar": grade.grammar,
-        "estimated_level": grade.estimated_level,
-    }
-    total_score = round(
-        (grade.task_fulfillment + grade.coherence + grade.lexis + grade.grammar) / 4,
-        1,
-    )
+    dimension_scores, total_score = speaking_grader.feedback_fields(grade)
 
     feedback = AIFeedback(
         answer_id=answer_id,

@@ -52,6 +52,26 @@ def nclc_oral_band_for(level: str) -> tuple[str | None, str | None]:
     return NCLC_ORAL_BANDS.get(level, (None, None))
 
 
+def feedback_fields(grade: "SpeakingGrade") -> tuple[dict, float]:
+    """Map a grade onto the ``ai_feedback`` columns (dimension_scores + total).
+
+    Shared by the monologue and conversation routers so the oral dimension set
+    (lexis + estimated_level in JSONB) and the mean-of-four total stay in sync.
+    """
+    dimension_scores = {
+        "task_fulfillment": grade.task_fulfillment,
+        "coherence": grade.coherence,
+        "lexis": grade.lexis,
+        "grammar": grade.grammar,
+        "estimated_level": grade.estimated_level,
+    }
+    total_score = round(
+        (grade.task_fulfillment + grade.coherence + grade.lexis + grade.grammar) / 4,
+        1,
+    )
+    return dimension_scores, total_score
+
+
 _EXAMINER = """You are an experienced TCF Canada (Test de connaissance du \
 français) examiner grading the "Expression orale" (Speaking) section. You are \
 given a written transcript of the candidate's spoken response."""
