@@ -59,7 +59,7 @@
 - Docs: README backend run block now activates the venv before uvicorn, with a note that the prompt must show `(.venv)` or sqlalchemy won't be found.
 - Observability (Phase 5 start): integrated Langfuse (4.7.1, OTEL-based). `@observe()` on `run_grader` — the LangGraph entry point only, nodes not yet instrumented — and `langfuse.flush()` after each run (finally, so it fires on success or error). Keys (LANGFUSE_PUBLIC_KEY / SECRET_KEY / HOST) read via pydantic-settings and passed explicitly to the client — same `.env`-not-`os.environ` reason as ANTHROPIC_API_KEY. Tracing disabled cleanly when keys are unset, so grading still works. Added to requirements.txt + .env.example.
 
-## 2026-06-10 Session 4
+## 2026-06-10
 
 ### Langfuse observability — Step 1
 - Installed langfuse==4.7.1, wired to Langfuse Cloud (US region)
@@ -67,7 +67,7 @@
 - Langfuse client init is conditional: keys missing → tracing disabled silently
 - First trace confirmed in dashboard: run_grader span with full input/output/latency
 
-## 2026-06-11 Session 5
+## 2026-06-11
 
 ### Langfuse observability — Step 2: per-node instrumentation
 - Added @observe() to all four LangGraph nodes (score, find_errors, verify_errors, assemble)
@@ -81,7 +81,7 @@
 - Result: verify_errors 35.8s → 20.0s (~44% reduction)
 - Note: total grading time varies per run due to API latency fluctuation, not code
 
-## 2026-06-15 Session 6
+## 2026-06-15
 
 ### Langfuse observability — Step 2 follow-up
 - Fixed a tracing gap: `verify_errors` was documented as a Langfuse generation, but the code discarded its Anthropic token usage before `graph.py` could log it.
@@ -89,14 +89,14 @@
 - `verify_errors_node` now logs a `verify_errors` generation only when a model call actually happened, so Langfuse distinguishes "node ran with no candidates" from "node made a Claude call".
 - Verified syntax with `.venv/bin/python -m compileall app`.
 
-## 2026-06-16 Session 7
+## 2026-06-16
 
 ### Grader regression eval v0
 - Added `backend/scripts/eval_grader.py`, a small human-readable eval script for the LangGraph writing grader. It calls the real grader with fixed examples and prints PASS/FAIL, estimated CEFR/NCLC/band, and corrections.
 - Covered three regression checks: polite imparfait should not be flagged (`Je voulais...`), obvious plural/agreement errors should be detected (`des pomme`, `très gentils`), and a very weak short answer should not be over-scored.
 - First run passed 3/3. Runtime was roughly 50s for three real Claude-backed grading runs, reinforcing that LLM evals should stay small, targeted, and explainable at this stage.
 
-## 2026-06-17 Session 8
+## 2026-06-17
 
 ### Grader regression eval v1
 - Turned the eval script into a small CLI tool while preserving the default behavior of running the full suite.
@@ -105,7 +105,7 @@
 - Added per-case runtime plus a summary with total runtime and failed case names.
 - Verified `--help`, `--list`, invalid-case handling, and Python compilation without spending API tokens.
 
-## 2026-07-08 Session 9
+## 2026-07-08
 
 ### Langfuse observability — business metadata on traces
 - Attached business dimensions to each grading trace so runs are filterable/sliceable in Langfuse: `user_id`, `question_id`, and the resulting `cefr_level`.
@@ -114,7 +114,7 @@
 - Since `@observe()` creates a span observation, all three fields go into the metadata dict on that root span, set in one call after the graph completes (ids known up front, CEFR only known post-graph). No-op when tracing is disabled.
 - Marked Phase 5 complete in README, scoped to **Langfuse LLM tracing**. A standalone OpenTelemetry pipeline (collector + exporter) is deferred to Phase 6, where it folds into the self-hosted Langfuse-on-K8s work.
 
-## 2026-07-08 Session 10
+## 2026-07-08
 
 ### Expanded writing seed questions (3 → 15)
 - Added 12 new "Expression écrite" prompts (4 per task), keeping the existing levels and word-count ranges: Tâche 1 (A2, 60–120), Tâche 2 (B1, 120–150), Tâche 3 (B2, 120–180). Existing 3 questions untouched.
@@ -122,7 +122,7 @@
 - Gotcha: idempotency is keyed on `(exam_section, task_number, source)`, so multiple questions sharing a task_number must use distinct sources — otherwise all but one silently skip on insert. Gave each question a unique `source`; documented the constraint in a comment.
 - Validated the literal before seeding (15 rows, 5 per task, all dedup keys unique, consistent fields/ranges), then seeded successfully.
 
-## 2026-07-11 Session 11
+## 2026-07-11
 
 ### Phase 3 kickoff — Speaking agent, slice 1: monologue grading
 - Built the speaking equivalent of the Phase 2 flow: **audio upload → Whisper STT → speaking LangGraph grader → structured feedback.** Chose monologue grading first (over jumping to a live conversational examiner) to reuse the established architecture; TTS + multi-turn dialogue deferred.
@@ -134,7 +134,7 @@
 - Seeded 3 Expression orale tasks (Tâches 1–3, A2/B1/B2). `word_count_min/max` are N/A for speech → set to 0; `time_limit_seconds` holds the speaking duration. Added `scripts/eval_speaking_grader.py` (transcript-based, no audio/OpenAI needed).
 - Verified end-to-end: eval 3/3 pass (disfluencies not flagged; "les enfant"/"intéressants" agreement errors caught; weak answer not over-scored). Live audio path with a `say`-generated French clip: upload transcribed correctly → graded A2 with the pronunciation caveat in the comment → read back identical. Error paths confirmed: re-grade 409, non-speaking question 400, missing answer 404.
 
-## 2026-07-12 Session 12
+## 2026-07-12
 
 ### Phase 3 slice 2 — Speaking UI (browser audio recording)
 - Wired the frontend to the `/speaking` endpoints: record a spoken answer with `MediaRecorder` → upload → show the Whisper transcript → show the oral grade. Mirrors the writing page's submit→grade→feedback UX.
@@ -146,7 +146,7 @@
 - Verified: `npm run lint` clean, `npm run build` passes (TypeScript + all routes: `/`, `/speaking/[id]`, `/questions/[id]`). Dev-server smoke: all routes 200, speaking shell SSRs, no runtime errors, writing flow unchanged.
 - Manual browser pass (real mic, Chrome): record → Stop → playback → Submit → transcript → oral grade all working end-to-end; writing flow unchanged. Speaking UI slice confirmed complete.
 
-## 2026-07-13 Session 13
+## 2026-07-13
 
 ### Phase 3 slice 3 — Conversational examiner (backend, turn-based voice dialogue)
 - Built the "voice agent": examiner speaks a prompt (TTS) → candidate answers (mic → STT) → examiner asks follow-ups over several turns → the dialogue is graded. Turn-based over HTTP; the persisted session is the source of truth (LangGraph's Postgres checkpointer isn't installed, so pausing one graph between HTTP turns isn't available — and a per-turn LLM call is simpler anyway).
@@ -157,7 +157,7 @@
 - Gotcha: Anthropic requires `thinking.budget_tokens >= 1024` and `max_tokens > budget` — first cut used 512 and 400 → 400 error; bumped to 1024 / 1536.
 - Verified: `eval_examiner` (text-only) passes — natural French follow-ups, ends exactly at the 5-turn cap. Live loop with `say` clips: opening (valid 24kHz MP3) → 2 turns (accurate STT + contextual questions + audio) → finish graded A2 (reused grader) with `answer_id` linked → session read-back shows all turns. Error paths: re-finish 409, turn-after-finish 409, writing-question 400. Migration round-trips. Monologue + writing paths unaffected.
 
-## 2026-07-14 Session 14
+## 2026-07-14
 
 ### Repurpose → self-hosted inference stack (reposition + scaffold)
 - Reframed the repo around a self-hosted LLM serving stack (inference gateway → observability → K8s → Argo → vLLM serving); the TCF tutor becomes the workload that exercises it. Build plan: `docs/upgrade-plan.md` (moved in from the repo root).
