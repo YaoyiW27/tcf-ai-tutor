@@ -69,3 +69,13 @@ and optional `LANGFUSE_*`. The app boots without the API keys; the relevant endp
 - Committed docs are written in **English** even when chatting in another language.
 - Update `docs/dev-log.md` (a new dated "Session" entry) and the README roadmap as each
   slice lands. Commit prefixes: `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues (`YaoyiW27/tcf-ai-tutor`) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context layout: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
