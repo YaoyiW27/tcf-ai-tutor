@@ -157,12 +157,19 @@
 - Gotcha: Anthropic requires `thinking.budget_tokens >= 1024` and `max_tokens > budget` — first cut used 512 and 400 → 400 error; bumped to 1024 / 1536.
 - Verified: `eval_examiner` (text-only) passes — natural French follow-ups, ends exactly at the 5-turn cap. Live loop with `say` clips: opening (valid 24kHz MP3) → 2 turns (accurate STT + contextual questions + audio) → finish graded A2 (reused grader) with `answer_id` linked → session read-back shows all turns. Error paths: re-finish 409, turn-after-finish 409, writing-question 400. Migration round-trips. Monologue + writing paths unaffected.
 
+## 2026-07-14 Session 14
+
+### Repurpose → self-hosted inference stack (reposition + scaffold)
+- Reframed the repo around a self-hosted LLM serving stack (inference gateway → observability → K8s → Argo → vLLM serving); the TCF tutor becomes the workload that exercises it. Build plan: `docs/upgrade-plan.md` (moved in from the repo root).
+- Reviewed the upgrade plan and settled three decisions with the user: **full pivot** of the framing; **rent a cloud GPU** for vLLM (the Mac has no CUDA, so local vLLM can't produce the GPU-metrics/quantization story); and a **GPU-free-first** build order — gateway + Prometheus/Grafana + kind K8s + Argo all run without a GPU, so vLLM is slotted in **last** on a rented GPU to minimize cost. This inverts the doc's vLLM-first order.
+- Named the constraints up front: vLLM is text-only, so **STT (Whisper) + TTS stay on OpenAI**; **Claude stays as the "quality" backend** behind an `INFERENCE_BACKEND` (anthropic|openai|vllm) switch; grader structured output will need a guided-JSON path for the vLLM backend.
+- This slice is docs + structure only (no app logic changed): new `docs/architecture-v2-infra.md` (target diagram + re-sequenced roadmap + decisions); monorepo skeleton dirs `gateway/ infra/ benchmarks/ pipeline/` each with a purpose+status README; README + CLAUDE.md rewritten to the infra framing with the real run/eval commands and new scope guardrails (measurement-first, code quality, sequencing).
+
 ## Next up
-- Frontend: conversational Speaking UI (play examiner audio, record answer, loop over turns, show the final grade) wired to `/speaking/sessions`.
-- Phase 3 leftovers: optional Whisper `verbose_json` segment timings → words-per-minute fluency signal; persist/replay dialogue audio; grading that weighs the examiner questions as context; confirm the oral score bands against the official grid.
-- Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI (per-node Langfuse spans will show where the time goes).
-- Future: scoring reference RAG — embed official CEFR rubrics + sample essays into pgvector, retrieve in the `score` node prompt to ground grading decisions in reference material.
-- Future (Phase 6): self-host Langfuse on K8s via Helm chart, plus a full OpenTelemetry pipeline (collector + exporter).
+- **Inference Gateway** (GPU-free, first infra slice): `gateway/` module with the `INFERENCE_BACKEND` backend abstraction, token counting (tiktoken / Anthropic count), per-request cost/latency tracking, token-bucket rate limiting, and a Prometheus `/metrics` endpoint; route the grader + examiner calls through it, then a small load/benchmark script.
+- Then: observability stack (Prometheus + Grafana) → containerize + K8s (kind) → Argo eval pipeline + model registry → vLLM serving on a cloud GPU (FP16 vs AWQ benchmarks, GPU metrics, GPU-aware HPA).
+- Deferred workload items: conversational Speaking **UI** (wired to `/speaking/sessions`); Whisper `verbose_json` → words-per-minute fluency signal; scoring-reference RAG (pgvector).
+- Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI.
 
 ## Notes
 - Two-terminal workflow established: one for backend (uvicorn), one for everything else.

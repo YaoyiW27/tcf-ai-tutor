@@ -1,11 +1,43 @@
-# tcf-ai-tutor
+# tcf-ai-tutor — Self-hosted LLM inference stack with observability and automated deployment pipeline
 
-**TCF Canada AI Tutor** — a LangGraph multi-node AI writing grader with a Next.js frontend. A personal project for hands-on AI engineering, motivated by preparing for TCF Canada.
+An inference gateway — request routing, token and cost accounting, rate limiting, and Prometheus metrics — sits in front of an open-weight LLM served by vLLM. The stack runs on Kubernetes with Prometheus/Grafana monitoring and an Argo Workflows pipeline that evaluates candidate models and rolls them out when they beat the current baseline. The workload it serves is a TCF Canada French-exam tutor: LangGraph writing and speaking graders and a turn-based voice examiner.
+
+Text generation sits behind an `INFERENCE_BACKEND` switch (`anthropic` | `openai` | `vllm`), so the workload runs unchanged against a hosted API or the self-hosted model. Speech-to-text (Whisper) and text-to-speech run on OpenAI. Each serving configuration is benchmarked — TTFT, tokens/sec, P50/95/99 latency, QPS, cost per request.
+
+The tutor workload runs end-to-end today against the Anthropic and OpenAI APIs. The infrastructure layers are being built GPU-independent parts first — gateway, monitoring, Kubernetes (kind), Argo — with vLLM wired in last on a rented GPU, since the development machine is a Mac with no CUDA. Design notes and build order: [docs/architecture-v2-infra.md](docs/architecture-v2-infra.md).
+
+## Architecture
+
+```
+Application — TCF tutor (FastAPI + LangGraph graders + Next.js UI)   built
+        │
+Inference gateway (routing · token/cost accounting ·                 in progress
+  rate limiting · /metrics · SSE)
+        │
+Model serving — vLLM, OpenAI-compatible                              planned
+  (continuous batching · KV cache · AWQ/GPTQ)
+        │
+Observability — Prometheus + Grafana                                 planned
+  (QPS · P50/95/99 · TTFT · GPU util · VRAM · KV-cache)
+        │
+Orchestration — Kubernetes (kind/k3s) · Helm · HPA                   planned
+        │
+Model pipeline — Argo Workflows · model registry                     planned
+```
+
+## Components
+
+- **Inference gateway** *(in progress)* — the app calls the gateway instead of an LLM SDK directly. It validates requests, counts tokens, rate-limits per user, routes to the selected backend, records latency and cost, and exposes Prometheus metrics at `/metrics`.
+- **Model serving** *(planned)* — vLLM serving an open-weight model (e.g. Qwen2.5-7B-Instruct) over an OpenAI-compatible API, with continuous batching and AWQ/GPTQ quantization. Runs on a rented GPU.
+- **Observability** *(planned)* — Prometheus scrapes the gateway and vLLM; Grafana dashboards for latency, throughput, GPU/VRAM, KV-cache, and cost.
+- **Orchestration** *(planned)* — Kubernetes (kind locally), Helm, HPA driven by queue depth / GPU utilization.
+- **Model pipeline** *(planned)* — Argo Workflows: pull model weights → run the eval suite → compare against the current baseline → rolling-update the vLLM deployment on pass, else notify.
+- **Workload** *(built)* — FastAPI + LangGraph writing/speaking graders and a turn-based voice examiner; PostgreSQL + Alembic; Langfuse tracing; a Next.js UI. Text generation uses Anthropic Claude today; STT/TTS use OpenAI. See [backend/README.md](backend/README.md).
 
 ## Stack
 
-**Backend:** FastAPI · PostgreSQL · SQLAlchemy · Alembic · LangGraph · Anthropic · OpenAI Whisper (STT) + TTS
-**Frontend:** Next.js · shadcn/ui · Tailwind · TypeScript
+**Infrastructure:** vLLM · Prometheus · Grafana · Kubernetes (kind/k3s) · Helm · Argo Workflows · Docker · GitHub Actions
+**Workload:** FastAPI · LangGraph · Anthropic Claude · OpenAI Whisper (STT) + TTS · PostgreSQL · SQLAlchemy · Alembic · Langfuse · Next.js · shadcn/ui · Tailwind
 
 ---
 
@@ -75,55 +107,34 @@ Open **http://localhost:3000** — the home page fetches and renders the questio
 
 ---
 
-## What it is (and isn't)
+## Roadmap
 
-**Is:**
-- A multi-agent system that helps with TCF Writing and Speaking practice
-- A learning project for AI infrastructure and observability
-- A bridge project: applying DevOps/SRE practices (containers, tracing,
-  monitoring) to LLM systems
+Built:
+- [x] Tutor workload — writing grader (LangGraph multi-node), speaking grader, turn-based voice examiner, Langfuse tracing, Next.js UI
 
-**Isn't:**
-- A complete TCF question bank
-- A replacement for PrepMyFrench
-- A startup or product play
+In progress:
+- [~] Monorepo scaffold + this architecture
+- [ ] Inference gateway — `INFERENCE_BACKEND` switch, token/cost accounting, rate limiting, Prometheus `/metrics`
 
-## Status
+Planned:
+- [ ] Observability — Prometheus + Grafana dashboards
+- [ ] Kubernetes (kind/k3s) — Helm, kube-prometheus-stack, HPA
+- [ ] Model pipeline — Argo Workflows eval → gate → rolling update, model registry
+- [ ] vLLM serving on GPU — FP16-vs-AWQ benchmarks, GPU metrics, GPU-aware HPA
 
-- [x] Project scaffold
-  - [x] Schema design ([docs/schema-v1.md](docs/schema-v1.md))
-  - [x] Architecture sketch ([docs/architecture-v1.md](docs/architecture-v1.md))
-  - [x] Frontend scaffold (Next.js + Tailwind + shadcn/ui)
-  - [x] Backend scaffold (FastAPI + `/health`)
-  - [x] Frontend-backend integration (CORS + env config)
-- [x] Phase 1: Schema design & first agent
-- [x] Phase 2: Writing AI Grader (LangGraph multi-node pipeline) — includes the multi-node orchestration originally scoped as Phase 4
-- [~] Phase 3: Speaking Voice Agent — in progress
-  - [x] Monologue grading: audio upload → Whisper STT → speaking LangGraph grader → feedback
-  - [x] Frontend audio recording UI (MediaRecorder → transcript → oral grade)
-  - [~] Conversational examiner (TTS + multi-turn dialogue) — backend done; browser UI next
-- [x] Phase 5: Observability (Langfuse LLM tracing)
-- [ ] Phase 6: Containerization & deployment
-  - Planned: self-hosted Langfuse on Kubernetes (Helm), with a full OpenTelemetry pipeline (collector + exporter)
-
-### Planned enhancements
-
-- Scoring reference RAG: embed the official CEFR rubrics + sample essays into pgvector and retrieve them in the `score` node prompt, grounding grading decisions in reference material rather than the model's priors alone.
+Sequencing note: only vLLM needs a GPU, so the GPU-independent layers are built and validated on the Mac first; vLLM is added last on a rented GPU. Rationale in [docs/architecture-v2-infra.md](docs/architecture-v2-infra.md).
 
 ## Repository layout
 
 ```
 tcf-ai-tutor/
+├── backend/          # Application layer — FastAPI tutor (Python 3.11)
 ├── frontend/         # Next.js 16 (App Router) + Tailwind v4 + shadcn/ui
-├── backend/          # FastAPI service (Python 3.11)
-├── docs/             # Schema & architecture notes
+├── gateway/          # Inference gateway (in progress)
+├── infra/            # Dockerfiles, K8s/Helm, Prometheus/Grafana (planned)
+├── benchmarks/       # Serving benchmarks + results (planned)
+├── pipeline/         # Argo Workflows eval pipeline + model registry (planned)
+├── docs/             # Architecture (v1 workload, v2 infra), build plan, dev log
 ├── CLAUDE.md         # Guidance for Claude Code
 └── README.md
 ```
-
-See [backend/README.md](backend/README.md) for backend details.
-
-## Positioning
-
-This project sits at the intersection of AI engineering and DevOps —
-showing how production engineering practices translate to LLM systems.
