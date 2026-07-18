@@ -165,9 +165,20 @@
 - Named the constraints up front: vLLM is text-only, so **STT (Whisper) + TTS stay on OpenAI**; **Claude stays as the "quality" backend** behind an `INFERENCE_BACKEND` (anthropic|openai|vllm) switch; grader structured output will need a guided-JSON path for the vLLM backend.
 - This slice is docs + structure only (no app logic changed): new `docs/architecture-v2-infra.md` (target diagram + re-sequenced roadmap + decisions); monorepo skeleton dirs `gateway/ infra/ benchmarks/ pipeline/` each with a purpose+status README; README + CLAUDE.md rewritten to the infra framing with the real run/eval commands and new scope guardrails (measurement-first, code quality, sequencing).
 
+## 2026-07-17
+
+### Inference gateway — separate OpenAI-compatible service (first infra slice)
+- Built `gateway/` as a standalone FastAPI service (own venv/deps), OpenAI-compatible `POST /v1/chat/completions` + `/metrics` + `/health`. Backend router keyed by `INFERENCE_BACKEND`: `anthropic` (default) translates to the Anthropic Messages API; `openai`/`vllm` forward to an `UPSTREAM_BASE_URL`. So vLLM later is a config change, not code.
+- Structured output preserved across the boundary: the workload calls `chat.completions.parse(response_format=Pydantic)`; for the anthropic backend the gateway uses Anthropic's **native structured outputs** (`output_config.format`, thinking-compatible — the same mechanism `messages.parse` uses), normalizing the incoming OpenAI schema with Anthropic's own `transform_schema`. Reasoning control is now provider-agnostic: `_structured_call` takes `reasoning_effort` (low|medium|high); the gateway maps it to a thinking budget (verify/examiner → low, preserving the Session 5–6 latency tuning).
+- Cross-cutting: Prometheus metrics (requests, latency histogram, tokens in/out, cost, in-flight), per-key token-bucket rate limiting (429), a per-model cost table.
+- Migrated the whole workload through **one chokepoint** — `grader._structured_call` now uses `AsyncOpenAI(base_url=GATEWAY_URL)` instead of the Anthropic SDK; returns a normalized `Usage(input_tokens, output_tokens)` so `_log_generation` is unchanged. Dropped the direct `anthropic` dependency from the app; routers now map `openai.APIStatusError` → the gateway's status code (503/429/502). Backend gained `GATEWAY_URL` config; `ANTHROPIC_API_KEY` moved to the gateway.
+- **Parity milestone met:** all three evals pass **through the gateway** with the anthropic backend — writing 3/3, speaking 3/3, examiner (ends at the 5-turn cap). Same model, structured output intact: routing is transparent.
+- Metrics confirmed populated (`/metrics`); added `benchmarks/bench_gateway.py` (concurrent load → latency P50/95/99, QPS, output tok/sec, saved JSON). First run: 12 req @ concurrency 4 → QPS 1.35, P50 2.46s / P95 3.67s, ~123 output tok/sec.
+- Gotcha: `budget_tokens < max_tokens` (unchanged from before) and the anthropic private schema path `anthropic.lib._parse._transform.transform_schema` — verified present in the gateway's anthropic 0.117.0.
+
 ## Next up
-- **Inference Gateway** (GPU-free, first infra slice): `gateway/` module with the `INFERENCE_BACKEND` backend abstraction, token counting (tiktoken / Anthropic count), per-request cost/latency tracking, token-bucket rate limiting, and a Prometheus `/metrics` endpoint; route the grader + examiner calls through it, then a small load/benchmark script.
-- Then: observability stack (Prometheus + Grafana) → containerize + K8s (kind) → Argo eval pipeline + model registry → vLLM serving on a cloud GPU (FP16 vs AWQ benchmarks, GPU metrics, GPU-aware HPA).
+- **Observability stack** (GPU-free): Prometheus + Grafana (docker-compose → later kind) scraping the gateway `/metrics`; dashboards for QPS, P50/95/99, tokens, cost, error rate.
+- Then: containerize + K8s (kind) → Argo eval pipeline + model registry → vLLM serving on a cloud GPU (FP16 vs AWQ benchmarks, GPU metrics, GPU-aware HPA).
 - Deferred workload items: conversational Speaking **UI** (wired to `/speaking/sessions`); Whisper `verbose_json` → words-per-minute fluency signal; scoring-reference RAG (pgvector).
 - Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI.
 

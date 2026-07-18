@@ -11,8 +11,8 @@ The tutor workload runs end-to-end today against the Anthropic and OpenAI APIs. 
 ```
 Application — TCF tutor (FastAPI + LangGraph graders + Next.js UI)   built
         │
-Inference gateway (routing · token/cost accounting ·                 in progress
-  rate limiting · /metrics · SSE)
+Inference gateway (routing · token/cost accounting ·                 built
+  rate limiting · /metrics)
         │
 Model serving — vLLM, OpenAI-compatible                              planned
   (continuous batching · KV cache · AWQ/GPTQ)
@@ -27,7 +27,7 @@ Model pipeline — Argo Workflows · model registry                     planned
 
 ## Components
 
-- **Inference gateway** *(in progress)* — the app calls the gateway instead of an LLM SDK directly. It validates requests, counts tokens, rate-limits per user, routes to the selected backend, records latency and cost, and exposes Prometheus metrics at `/metrics`.
+- **Inference gateway** *(built)* — a standalone OpenAI-compatible service (`gateway/`). The app calls it instead of an LLM SDK directly; it routes to the selected backend (`INFERENCE_BACKEND=anthropic|openai|vllm`), counts tokens, rate-limits per key, records latency/cost, and exposes Prometheus metrics at `/metrics`. Text grading + the examiner run through it today with the anthropic backend.
 - **Model serving** *(planned)* — vLLM serving an open-weight model (e.g. Qwen2.5-7B-Instruct) over an OpenAI-compatible API, with continuous batching and AWQ/GPTQ quantization. Runs on a rented GPU.
 - **Observability** *(planned)* — Prometheus scrapes the gateway and vLLM; Grafana dashboards for latency, throughput, GPU/VRAM, KV-cache, and cost.
 - **Orchestration** *(planned)* — Kubernetes (kind locally), Helm, HPA driven by queue depth / GPU utilization.
@@ -43,9 +43,21 @@ Model pipeline — Argo Workflows · model registry                     planned
 
 ## Running the project
 
-In development, run **two terminals at once**: one for the backend (`:8000`) and one for the frontend (`:3000`). Once both are up, open **http://localhost:3000** in your browser.
+In development, run three processes: the **inference gateway** (`:8001`), the **backend** (`:8000`), and the **frontend** (`:3000`). The backend routes text generation through the gateway, so start the gateway first. Once all are up, open **http://localhost:3000** in your browser.
 
 > Prerequisites: Python 3.11, Node.js, and a running PostgreSQL.
+
+### Start the inference gateway
+
+```bash
+cd gateway
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env            # set INFERENCE_BACKEND=anthropic + ANTHROPIC_API_KEY
+uvicorn app.main:app --port 8001
+```
+
+Verify: `curl http://localhost:8001/health` → `{"status":"ok","backend":"anthropic"}`. See [gateway/README.md](gateway/README.md) for backends, metrics, and the benchmark.
 
 ### Start the backend
 
@@ -111,13 +123,12 @@ Open **http://localhost:3000** — the home page fetches and renders the questio
 
 Built:
 - [x] Tutor workload — writing grader (LangGraph multi-node), speaking grader, turn-based voice examiner, Langfuse tracing, Next.js UI
+- [x] Inference gateway — `INFERENCE_BACKEND` switch, token/cost accounting, rate limiting, Prometheus `/metrics`; workload migrated to it (evals green through the gateway)
 
 In progress:
-- [~] Monorepo scaffold + this architecture
-- [ ] Inference gateway — `INFERENCE_BACKEND` switch, token/cost accounting, rate limiting, Prometheus `/metrics`
+- [ ] Observability — Prometheus + Grafana dashboards (scraping the gateway `/metrics`)
 
 Planned:
-- [ ] Observability — Prometheus + Grafana dashboards
 - [ ] Kubernetes (kind/k3s) — Helm, kube-prometheus-stack, HPA
 - [ ] Model pipeline — Argo Workflows eval → gate → rolling update, model registry
 - [ ] vLLM serving on GPU — FP16-vs-AWQ benchmarks, GPU metrics, GPU-aware HPA
