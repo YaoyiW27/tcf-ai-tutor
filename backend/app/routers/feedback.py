@@ -23,7 +23,7 @@ response exposes it as a first-class field.
 import uuid
 from datetime import datetime
 
-import anthropic
+import openai
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -103,9 +103,11 @@ async def grade_answer(
             user_id=str(answer.user_id),
             question_id=str(answer.question_id),
         )
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Grader not configured (no API key)")
-    except anthropic.APIError as exc:
+    except openai.APIStatusError as exc:
+        # The gateway surfaces missing-key (503) / rate-limit (429) / upstream
+        # (502) failures as HTTP status errors; pass the status through.
+        raise HTTPException(status_code=exc.status_code, detail=f"Grader call failed: {exc}")
+    except openai.APIError as exc:
         raise HTTPException(status_code=502, detail=f"Grader call failed: {exc}")
 
     dimension_scores = {

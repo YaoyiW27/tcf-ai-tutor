@@ -25,10 +25,9 @@ MODEL = grader.MODEL
 # a TCF oral task is short, and this guarantees termination.
 MAX_CANDIDATE_TURNS = 5
 
-# Short replies; cap tokens + thinking so each turn stays snappy. Anthropic
-# requires budget_tokens >= 1024 and max_tokens > budget.
+# Short replies; low reasoning effort so each turn stays snappy.
 _MAX_TOKENS = 1536
-_THINKING = {"type": "enabled", "budget_tokens": 1024}
+_REASONING_EFFORT = "low"
 
 _PERSONA = """You are a warm, professional TCF Canada (Test de connaissance du \
 français) examiner conducting the "Expression orale" (Speaking) section. You \
@@ -106,7 +105,7 @@ async def opening(question: Question):
         _task_block(question),
         ExaminerLine,
         max_tokens=_MAX_TOKENS,
-        thinking=_THINKING,
+        reasoning_effort=_REASONING_EFFORT,
     )
     return line.reply, usage
 
@@ -129,6 +128,6 @@ async def next_turn(question: Question, history: list[dict]):
         _format_dialogue(question, history),
         ExaminerTurn,
         max_tokens=_MAX_TOKENS,
-        thinking=_THINKING,
+        reasoning_effort=_REASONING_EFFORT,
     )
     return turn.reply, (turn.should_end or must_end), usage

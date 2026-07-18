@@ -12,20 +12,33 @@ The steps (orchestrated by :mod:`app.graph`):
 - :func:`find_errors`  — over-collect candidate language errors.
 - :func:`verify_errors` — keep only the candidates that are genuine errors.
 
-This module is pure scoring — no database access, no graph wiring. Each
-call uses ``messages.parse(output_format=...)`` so we get a validated
-Pydantic object back rather than free-form text. The router owns
-persistence; :mod:`app.graph` owns the pipeline.
+This module is pure scoring — no database access, no graph wiring. Calls go
+through the inference gateway (``settings.gateway_url``) using an
+OpenAI-compatible client; ``chat.completions.parse(response_format=...)`` gives
+a validated Pydantic object back. The gateway routes to the actual model backend
+(default Claude), so swapping models is a gateway config change, not a code
+change here. The router owns persistence; :mod:`app.graph` owns the pipeline.
 """
 
-from typing import Literal
+from typing import Literal, NamedTuple
 
-from anthropic import AsyncAnthropic
-from anthropic.types import ThinkingConfigParam, Usage
+from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.models import Question
+
+
+class Usage(NamedTuple):
+    """Token usage in a provider-agnostic shape.
+
+    Kept as ``input_tokens`` / ``output_tokens`` so the Langfuse generation
+    logging in ``app.graph`` / ``app.speaking_graph`` works unchanged after the
+    move from the Anthropic SDK to the gateway (OpenAI) client.
+    """
+
+    input_tokens: int
+    output_tokens: int
 
 # CEFR scale, matching DifficultyLevel in app.models. Literal → JSON enum,
 # which structured outputs enforces.
@@ -184,22 +197,22 @@ class EssayGrade(BaseModel):
     ecrit_band: str | None = None
 
 
-_client: AsyncAnthropic | None = None
+_client: AsyncOpenAI | None = None
 
 
-def _get_client() -> AsyncAnthropic:
-    """Lazily build the Anthropic client; raise if no key is configured."""
+def _get_client() -> AsyncOpenAI:
+    """Lazily build the OpenAI-compatible client pointed at the gateway.
+
+    The gateway holds the real provider key(s); this client only needs a
+    non-empty placeholder api_key. Reused across calls.
+    """
     global _client
-    if settings.anthropic_api_key is None:
-        raise RuntimeError("ANTHROPIC_API_KEY is not set")
     if _client is None:
-        _client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        _client = AsyncOpenAI(
+            base_url=f"{settings.gateway_url.rstrip('/')}/v1",
+            api_key="sk-gateway",
+        )
     return _client
-
-
-# Default reasoning config: let the model size its own thinking budget (up to
-# max_tokens). Verify overrides this with a small fixed budget — see verify_errors.
-_ADAPTIVE_THINKING: ThinkingConfigParam = {"type": "adaptive"}
 
 
 async def _structured_call(
@@ -208,27 +221,31 @@ async def _structured_call(
     output_format: type[BaseModel],
     *,
     max_tokens: int = 8000,
-    thinking: ThinkingConfigParam = _ADAPTIVE_THINKING,
+    reasoning_effort: str = "medium",
 ):
-    """One structured Claude call.
+    """One structured call through the gateway.
 
     Returns ``(validated Pydantic object, token usage)`` so callers can report
-    the call as a Langfuse generation (model + input/output tokens). Callers
-    that don't need the usage can discard it.
-
-    ``max_tokens`` and ``thinking`` default to the adaptive, generous settings
-    used by scoring/error-finding; callers can override them for cheaper, more
-    constrained steps (note: ``budget_tokens`` must be < ``max_tokens``).
+    the call as a Langfuse generation. ``reasoning_effort`` (``low|medium|high``)
+    is provider-agnostic; the gateway maps it to the backend's reasoning config
+    (for Anthropic: a thinking budget). ``max_tokens`` caps the completion.
     """
-    response = await _get_client().messages.parse(
+    response = await _get_client().chat.completions.parse(
         model=MODEL,
-        max_tokens=max_tokens,
-        thinking=thinking,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-        output_format=output_format,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        response_format=output_format,
+        max_completion_tokens=max_tokens,
+        reasoning_effort=reasoning_effort,
     )
-    return response.parsed_output, response.usage
+    parsed = response.choices[0].message.parsed
+    usage = response.usage
+    return parsed, Usage(
+        input_tokens=usage.prompt_tokens if usage else 0,
+        output_tokens=usage.completion_tokens if usage else 0,
+    )
 
 
 def _build_task_message(question: Question, content: str) -> str:
@@ -283,16 +300,16 @@ async def verify_errors(
         f"## Candidate's essay\n{content}\n\n"
         f"## Candidate corrections to review\n{candidates}"
     )
-    # Verification is a constrained per-candidate classification, so cap the
-    # reasoning to a small fixed budget and a small output instead of the
-    # adaptive default — this is the step that dominated grade latency.
+    # Verification is a constrained per-candidate classification, so use low
+    # reasoning effort and a small output instead of the default — this is the
+    # step that dominated grade latency.
     verdicts: VerificationResult
     verdicts, usage = await _structured_call(
         VERIFY_ERRORS_SYSTEM,
         user,
         VerificationResult,
         max_tokens=2000,
-        thinking={"type": "enabled", "budget_tokens": 1024},
+        reasoning_effort="low",
     )
     corrections = [
         Correction(

@@ -18,7 +18,6 @@ grade reads back through the same shape (`SpeakingFeedbackOut`).
 import base64
 import uuid
 
-import anthropic
 import openai
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from langfuse import get_client
@@ -122,7 +121,9 @@ async def start_session(
             _log_gen("tts", tts.MODEL)
     except RuntimeError:
         raise HTTPException(status_code=503, detail="Examiner not configured (no API key)")
-    except (anthropic.APIError, openai.APIError) as exc:
+    except openai.APIStatusError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=f"Examiner call failed: {exc}")
+    except openai.APIError as exc:
         raise HTTPException(status_code=502, detail=f"Examiner call failed: {exc}")
     finally:
         langfuse.flush()
@@ -195,7 +196,9 @@ async def take_turn(
             _log_gen("tts", tts.MODEL)
     except RuntimeError:
         raise HTTPException(status_code=503, detail="Examiner not configured (no API key)")
-    except (anthropic.APIError, openai.APIError) as exc:
+    except openai.APIStatusError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=f"Examiner call failed: {exc}")
+    except openai.APIError as exc:
         raise HTTPException(status_code=502, detail=f"Examiner call failed: {exc}")
     finally:
         langfuse.flush()
@@ -260,9 +263,9 @@ async def finish_session(
             user_id=str(convo.user_id),
             question_id=str(convo.question_id),
         )
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Grader not configured (no API key)")
-    except anthropic.APIError as exc:
+    except openai.APIStatusError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=f"Grader call failed: {exc}")
+    except openai.APIError as exc:
         raise HTTPException(status_code=502, detail=f"Grader call failed: {exc}")
 
     dimension_scores, total_score = speaking_grader.feedback_fields(grade)

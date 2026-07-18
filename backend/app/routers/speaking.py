@@ -23,7 +23,6 @@ answer is distinguished from a writing one purely by its question's
 import uuid
 from datetime import datetime
 
-import anthropic
 import openai
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from langfuse import get_client
@@ -170,9 +169,9 @@ async def grade_speaking_answer(
             user_id=str(answer.user_id),
             question_id=str(answer.question_id),
         )
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="Grader not configured (no API key)")
-    except anthropic.APIError as exc:
+    except openai.APIStatusError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=f"Grader call failed: {exc}")
+    except openai.APIError as exc:
         raise HTTPException(status_code=502, detail=f"Grader call failed: {exc}")
 
     dimension_scores, total_score = speaking_grader.feedback_fields(grade)

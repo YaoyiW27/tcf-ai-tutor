@@ -23,6 +23,15 @@ class Settings(BaseSettings):
     )
 
     database_url: str
+
+    # Inference gateway base URL. All text-LLM calls (graders + examiner) go
+    # through the gateway (see app.grader), which holds the provider keys and
+    # routes to the configured backend (default Claude). STT/TTS still call
+    # OpenAI directly (openai_api_key below).
+    gateway_url: str = "http://localhost:8001"
+
+    # Kept for reference / local scripts; the backend no longer calls Anthropic
+    # directly (the gateway does). Safe to leave set in .env.
     anthropic_api_key: str | None = None
 
     # OpenAI API key, used only for Whisper speech-to-text on the Speaking path
