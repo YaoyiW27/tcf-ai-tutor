@@ -77,7 +77,7 @@ def _openai_shape(
     }
 
 
-async def _anthropic_backend(body: dict) -> tuple[dict, int, int]:
+async def _anthropic_backend(body: dict) -> tuple[dict, int, int, float]:
     client = _anthropic_client()
     messages = body.get("messages", [])
     system = "\n\n".join(
@@ -104,30 +104,44 @@ async def _anthropic_backend(body: dict) -> tuple[dict, int, int]:
             "format": {"type": "json_schema", "schema": transform_schema(schema)}
         }
 
+    upstream_start = time.perf_counter()
     resp = await client.messages.create(**kwargs, extra_body=extra_body)
+    upstream_seconds = time.perf_counter() - upstream_start
     text = "".join(b.text for b in resp.content if b.type == "text")
     usage = resp.usage
     out = _openai_shape(
         resp.id, body["model"], text, usage.input_tokens, usage.output_tokens
     )
-    return out, usage.input_tokens, usage.output_tokens
+    return out, usage.input_tokens, usage.output_tokens, upstream_seconds
 
 
-async def _forward_backend(body: dict) -> tuple[dict, int, int]:
+async def _forward_backend(body: dict) -> tuple[dict, int, int, float]:
     if not settings.upstream_base_url:
         raise RuntimeError("UPSTREAM_BASE_URL is not set")
     headers = {"Authorization": f"Bearer {settings.upstream_api_key or ''}"}
     url = f"{settings.upstream_base_url.rstrip('/')}/chat/completions"
     async with httpx.AsyncClient(timeout=120) as client:
+        upstream_start = time.perf_counter()
         resp = await client.post(url, json=body, headers=headers)
         resp.raise_for_status()
         data = resp.json()
+        upstream_seconds = time.perf_counter() - upstream_start
     usage = data.get("usage") or {}
-    return data, int(usage.get("prompt_tokens", 0)), int(usage.get("completion_tokens", 0))
+    return (
+        data,
+        int(usage.get("prompt_tokens", 0)),
+        int(usage.get("completion_tokens", 0)),
+        upstream_seconds,
+    )
 
 
-async def handle(body: dict) -> tuple[dict, int, int]:
-    """Route a chat-completions request to the configured backend."""
+async def handle(body: dict) -> tuple[dict, int, int, float]:
+    """Route a chat-completions request to the configured backend.
+
+    Returns ``(response, input_tokens, output_tokens, upstream_seconds)`` — the
+    last is the time spent awaiting the backend, so the caller can separate the
+    gateway's own overhead from model/upstream time.
+    """
     backend = settings.inference_backend
     if backend == "anthropic":
         return await _anthropic_backend(body)

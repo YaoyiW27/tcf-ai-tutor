@@ -45,7 +45,7 @@ async def chat_completions(request: Request) -> Response:
     metrics.INFLIGHT.inc()
     started = time.perf_counter()
     try:
-        resp, input_tokens, output_tokens = await backends.handle(body)
+        resp, input_tokens, output_tokens, upstream_seconds = await backends.handle(body)
     except RuntimeError as exc:  # missing key / misconfiguration
         metrics.REQUESTS.labels(backend, model, "503").inc()
         return JSONResponse(
@@ -61,6 +61,12 @@ async def chat_completions(request: Request) -> Response:
     finally:
         metrics.INFLIGHT.dec()
         metrics.LATENCY.labels(backend, model).observe(time.perf_counter() - started)
+
+    # Split total latency into upstream (model) time vs the gateway's own
+    # overhead — overhead is the metric the Python-vs-Rust A/B turns on.
+    total = time.perf_counter() - started
+    metrics.UPSTREAM_LATENCY.labels(backend, model).observe(upstream_seconds)
+    metrics.OVERHEAD.labels(backend, model).observe(max(0.0, total - upstream_seconds))
 
     metrics.REQUESTS.labels(backend, model, "200").inc()
     metrics.TOKENS_IN.labels(backend, model).inc(input_tokens)
