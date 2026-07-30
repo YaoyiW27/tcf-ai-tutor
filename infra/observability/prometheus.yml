@@ -1,0 +1,16 @@
+# Scrapes the gateway's /metrics. The `impl` target label is attached to every
+# series from that target, so dashboards can A/B by implementation without any
+# app-side label. Add the Rust gateway as a second target when it exists.
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: gateway
+    static_configs:
+      - targets: ["host.docker.internal:8001"]
+        labels:
+          impl: python
+      # Uncomment when the Rust gateway is running (see docs/rust-gateway-benchmark.md):
+      # - targets: ["host.docker.internal:8002"]
+      #   labels:
+      #     impl: rust
