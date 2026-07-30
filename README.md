@@ -17,8 +17,8 @@ Inference gateway (routing · token/cost accounting ·                 built
 Model serving — vLLM, OpenAI-compatible                              planned
   (continuous batching · KV cache · AWQ/GPTQ)
         │
-Observability — Prometheus + Grafana                                 planned
-  (QPS · P50/95/99 · TTFT · GPU util · VRAM · KV-cache)
+Observability — Prometheus + Grafana                                 built (gateway)
+  (QPS · P50/95/99 · overhead · tokens · cost; GPU panels w/ vLLM)
         │
 Orchestration — Kubernetes (kind/k3s) · Helm · HPA                   planned
         │
@@ -29,7 +29,7 @@ Model pipeline — Argo Workflows · model registry                     planned
 
 - **Inference gateway** *(built)* — a standalone OpenAI-compatible service (`gateway/`). The app calls it instead of an LLM SDK directly; it routes to the selected backend (`INFERENCE_BACKEND=anthropic|openai|vllm`), counts tokens, rate-limits per key, records latency/cost, and exposes Prometheus metrics at `/metrics`. Text grading + the examiner run through it today with the anthropic backend.
 - **Model serving** *(planned)* — vLLM serving an open-weight model (e.g. Qwen2.5-7B-Instruct) over an OpenAI-compatible API, with continuous batching and AWQ/GPTQ quantization. Runs on a rented GPU.
-- **Observability** *(planned)* — Prometheus scrapes the gateway and vLLM; Grafana dashboards for latency, throughput, GPU/VRAM, KV-cache, and cost.
+- **Observability** *(built for the gateway)* — Prometheus scrapes the gateway (`infra/observability/`); a Grafana dashboard shows QPS, error rate, latency p50/95/99, gateway overhead, tokens/sec, and cost, faceted by an `impl` label for A/B comparison. GPU/VRAM/KV-cache panels come with vLLM.
 - **Orchestration** *(planned)* — Kubernetes (kind locally), Helm, HPA driven by queue depth / GPU utilization.
 - **Model pipeline** *(planned)* — Argo Workflows: pull model weights → run the eval suite → compare against the current baseline → rolling-update the vLLM deployment on pass, else notify.
 - **Workload** *(built)* — FastAPI + LangGraph writing/speaking graders and a turn-based voice examiner; PostgreSQL + Alembic; Langfuse tracing; a Next.js UI. Text generation uses Anthropic Claude today; STT/TTS use OpenAI. See [backend/README.md](backend/README.md).
@@ -124,9 +124,7 @@ Open **http://localhost:3000** — the home page fetches and renders the questio
 Built:
 - [x] Tutor workload — writing grader (LangGraph multi-node), speaking grader, turn-based voice examiner, Langfuse tracing, Next.js UI
 - [x] Inference gateway — `INFERENCE_BACKEND` switch, token/cost accounting, rate limiting, Prometheus `/metrics`; workload migrated to it (evals green through the gateway)
-
-In progress:
-- [ ] Observability — Prometheus + Grafana dashboards (scraping the gateway `/metrics`)
+- [x] Observability — Prometheus + Grafana dashboards scraping the gateway; reusable benchmark harness (mock upstream + concurrency sweep) faceted by `impl` for an A/B (see [docs/rust-gateway-benchmark.md](docs/rust-gateway-benchmark.md))
 
 Planned:
 - [ ] Kubernetes (kind/k3s) — Helm, kube-prometheus-stack, HPA

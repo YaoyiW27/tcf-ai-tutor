@@ -176,9 +176,20 @@
 - Metrics confirmed populated (`/metrics`); added `benchmarks/bench_gateway.py` (concurrent load → latency P50/95/99, QPS, output tok/sec, saved JSON). First run: 12 req @ concurrency 4 → QPS 1.35, P50 2.46s / P95 3.67s, ~123 output tok/sec.
 - Gotcha: `budget_tokens < max_tokens` (unchanged from before) and the anthropic private schema path `anthropic.lib._parse._transform.transform_schema` — verified present in the gateway's anthropic 0.117.0.
 
+## 2026-07-29
+
+### Observability stack + reusable benchmark harness
+- Stood up **Prometheus + Grafana** via docker-compose (`infra/observability/`). Prometheus scrapes the host gateway over `host.docker.internal:8001`; the `impl` label is a Prometheus *target* label (not app-side), so a second gateway implementation slots in with no code change. Grafana (`:3001`, anonymous) auto-provisions the **Inference Gateway** dashboard — QPS, error rate, request-latency p50/95/99, **gateway overhead** p50/95/99, upstream latency, tokens/sec, in-flight, cost — every panel faceted by `impl` so A/B is built in.
+- **Metric contract hardened** for fair comparison: widened `gateway_request_latency_seconds` buckets (ms→s) and added `gateway_upstream_latency_seconds` + `gateway_overhead_seconds` (per-request total − upstream, fine sub-ms buckets). `backends.handle()` now returns `upstream_seconds`; `main.py` records upstream + overhead. Overhead is the metric the future Python-vs-Rust A/B turns on.
+- Made the benchmark harness **implementation-agnostic**: `bench_gateway.py` gained `--label`, a concurrency **sweep** (per-level QPS + p50/95/99 + errors), and `--pid` peak-RSS sampling; added `mock_upstream.py` (deterministic OpenAI-compatible upstream, `MOCK_DELAY_MS` fast/realistic profiles) and `compare_results.py` (side-by-side A/B table). The canonical benchmark runs the gateway forward path against the mock, isolating gateway overhead.
+- **Baseline captured** (`benchmarks/results/python-baseline.json`, forward→mock@1ms, limiter off): p50 9ms/p99 23ms at c=1; throughput peaks ~206 QPS at c=16 then degrades (Python ceiling); overhead p50 ≈4ms / p99 ≈24ms; peak RSS ≈93 MB; 0 errors. Validated the full loop: Prometheus target up, overhead quantiles resolve sub-ms.
+- Gotchas: (1) the gateway's default rate limit (120/min) throttles a load test to ~2 QPS + triggers client 429-retries → **run benchmarks with the limiter set very high**; (2) `pgrep -f` for `--pid` matched the background shell wrapper, not the Python child — filter by `comm=python`.
+- Scoped the future experiment in **`docs/rust-gateway-benchmark.md`**: hypothesis (single-request latency ~unchanged since I/O-bound; Rust wins on throughput ceiling, P99 under load, memory), method (same mock/load/dashboards/box), the exact metric contract, and the scorecard. **Rust gateway not built.**
+
 ## Next up
-- **Observability stack** (GPU-free): Prometheus + Grafana (docker-compose → later kind) scraping the gateway `/metrics`; dashboards for QPS, P50/95/99, tokens, cost, error rate.
-- Then: containerize + K8s (kind) → Argo eval pipeline + model registry → vLLM serving on a cloud GPU (FP16 vs AWQ benchmarks, GPU metrics, GPU-aware HPA).
+- Containerize the gateway + workload (Dockerfiles) → K8s (kind) with Helm + kube-prometheus-stack + HPA on gateway metrics.
+- Then: Argo eval pipeline + model registry → vLLM serving on a cloud GPU (FP16 vs AWQ benchmarks, GPU metrics, GPU-aware HPA).
+- Future: the **Rust gateway** experiment (see `docs/rust-gateway-benchmark.md`).
 - Deferred workload items: conversational Speaking **UI** (wired to `/speaking/sessions`); Whisper `verbose_json` → words-per-minute fluency signal; scoring-reference RAG (pgvector).
 - Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI.
 
