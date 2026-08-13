@@ -1,0 +1,12 @@
+# Prometheus config for the fully containerized stack: scrape the gateway by its
+# compose service DNS name (not host.docker.internal). The `impl` target label
+# feeds the Grafana dashboard's A/B faceting.
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: gateway
+    static_configs:
+      - targets: ["gateway:8001"]
+        labels:
+          impl: python

@@ -1,0 +1,72 @@
+# Full containerized stack: Postgres + gateway + backend + Prometheus + Grafana.
+# Run from this directory so ./.env is auto-loaded and the relative build/mount
+# paths resolve:
+#   cd infra/compose && docker compose up --build
+name: tcf-stack
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tcf_app
+      POSTGRES_DB: tcf_ai_tutor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tcf_pass}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tcf_app -d tcf_ai_tutor"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  gateway:
+    build: ../../gateway
+    environment:
+      INFERENCE_BACKEND: anthropic
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # High limits so the gateway isn't the bottleneck for load tests.
+      RATE_LIMIT_PER_MIN: "6000000"
+      RATE_LIMIT_BURST: "1000000"
+    ports:
+      - "8001:8001"
+
+  backend:
+    build: ../../backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://tcf_app:${POSTGRES_PASSWORD:-tcf_pass}@postgres:5432/tcf_ai_tutor
+      GATEWAY_URL: http://gateway:8001
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  pgdata:
