@@ -46,6 +46,8 @@ Model pipeline — Argo Workflows · model registry                     planned
 In development, run three processes: the **inference gateway** (`:8001`), the **backend** (`:8000`), and the **frontend** (`:3000`). The backend routes text generation through the gateway, so start the gateway first. Once all are up, open **http://localhost:3000** in your browser.
 
 > Prerequisites: Python 3.11, Node.js, and a running PostgreSQL.
+>
+> **Prefer containers?** The whole backend stack (Postgres + gateway + backend + Prometheus + Grafana) runs with one command — see [infra/compose/](infra/compose/). The steps below are the host-run dev workflow.
 
 ### Start the inference gateway
 
@@ -125,6 +127,7 @@ Built:
 - [x] Tutor workload — writing grader (LangGraph multi-node), speaking grader, turn-based voice examiner, Langfuse tracing, Next.js UI
 - [x] Inference gateway — `INFERENCE_BACKEND` switch, token/cost accounting, rate limiting, Prometheus `/metrics`; workload migrated to it (evals green through the gateway)
 - [x] Observability — Prometheus + Grafana dashboards scraping the gateway; reusable benchmark harness (mock upstream + concurrency sweep) faceted by `impl` for an A/B (see [docs/rust-gateway-benchmark.md](docs/rust-gateway-benchmark.md))
+- [x] Containerized stack — Dockerfiles (gateway + backend) + one-command `docker compose` (Postgres + gateway + backend + Prometheus + Grafana); see [infra/compose/](infra/compose/)
 
 Planned:
 - [ ] Kubernetes (kind/k3s) — Helm, kube-prometheus-stack, HPA
@@ -139,8 +142,8 @@ Sequencing note: only vLLM needs a GPU, so the GPU-independent layers are built 
 tcf-ai-tutor/
 ├── backend/          # Application layer — FastAPI tutor (Python 3.11)
 ├── frontend/         # Next.js 16 (App Router) + Tailwind v4 + shadcn/ui
-├── gateway/          # Inference gateway (in progress)
-├── infra/            # Dockerfiles, K8s/Helm, Prometheus/Grafana (planned)
+├── gateway/          # Inference gateway (+ Dockerfile)
+├── infra/            # compose/ (full stack) · observability/ (Prom+Grafana); K8s/Helm planned
 ├── benchmarks/       # Serving benchmarks + results (planned)
 ├── pipeline/         # Argo Workflows eval pipeline + model registry (planned)
 ├── docs/             # Architecture (v1 workload, v2 infra), build plan, dev log

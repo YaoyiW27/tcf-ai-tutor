@@ -186,8 +186,17 @@
 - Gotchas: (1) the gateway's default rate limit (120/min) throttles a load test to ~2 QPS + triggers client 429-retries → **run benchmarks with the limiter set very high**; (2) `pgrep -f` for `--pid` matched the background shell wrapper, not the Python child — filter by `comm=python`.
 - Scoped the future experiment in **`docs/rust-gateway-benchmark.md`**: hypothesis (single-request latency ~unchanged since I/O-bound; Rust wins on throughput ceiling, P99 under load, memory), method (same mock/load/dashboards/box), the exact metric contract, and the scorecard. **Rust gateway not built.**
 
+## 2026-08-13
+
+### Containerize the stack (Docker + full-stack compose)
+- Split "containerize + K8s" in two: this slice is **Docker-only** (kubectl + helm aren't installed; kind + Docker are). Postgres runs **containerized fresh**; the backend entrypoint runs `alembic upgrade head` + seed on start.
+- Added `gateway/Dockerfile` and `backend/Dockerfile` (both `python:3.11-slim`; all compiled deps resolved via manylinux wheels — no `build-essential` needed) + `.dockerignore`s + `backend/docker-entrypoint.sh` (migrate → seed → uvicorn).
+- New `infra/compose/`: one-command full stack — `postgres:16` + gateway + backend + Prometheus + Grafana. Prometheus scrapes the gateway by **service DNS** (`gateway:8001`, `impl=python` target label); Grafana reuses the existing provisioning + dashboard unchanged. Kept separate from `infra/observability/` (which scrapes a *host-run* gateway for dev/benchmarks). Postgres isn't published to the host (avoids clashing with a host Postgres on 5432).
+- **Verified end-to-end in containers:** `docker compose up --build` → backend entrypoint ran both migrations + seeded 18 questions → submitted + graded an answer (backend → gateway container → Anthropic) returning real CEFR feedback → Prometheus target `up` scraping `gateway:8001` with the grade's requests visible → Grafana healthy with the dashboard. `down -v` clean.
+- Gotcha: leftover `tcf-prometheus`/`tcf-grafana` containers from the `infra/observability/` stack held :9090/:3001 — brought that stack down first.
+
 ## Next up
-- Containerize the gateway + workload (Dockerfiles) → K8s (kind) with Helm + kube-prometheus-stack + HPA on gateway metrics.
+- **K8s (kind)**: install kubectl + helm; Helm chart for gateway + backend + Postgres; kube-prometheus-stack; HPA on a gateway metric (in-flight or QPS via prometheus-adapter). Migrations move to an init Job.
 - Then: Argo eval pipeline + model registry → vLLM serving on a cloud GPU (FP16 vs AWQ benchmarks, GPU metrics, GPU-aware HPA).
 - Future: the **Rust gateway** experiment (see `docs/rust-gateway-benchmark.md`).
 - Deferred workload items: conversational Speaking **UI** (wired to `/speaking/sessions`); Whisper `verbose_json` → words-per-minute fluency signal; scoring-reference RAG (pgvector).
