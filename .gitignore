@@ -70,6 +70,9 @@ web_modules/
 .env.*
 !.env.example
 
+# Helm secret values (real API keys) — commit only the *.example.yaml
+values-secret.yaml
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache

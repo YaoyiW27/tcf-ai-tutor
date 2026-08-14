@@ -1,0 +1,42 @@
+nameOverride: ""
+fullnameOverride: ""
+
+images:
+  gateway:
+    repository: tcf-gateway
+    tag: dev
+    pullPolicy: IfNotPresent
+  backend:
+    repository: tcf-backend
+    tag: dev
+    pullPolicy: IfNotPresent
+
+postgres:
+  image: postgres:16-alpine
+  user: tcf_app
+  db: tcf_ai_tutor
+  storage: 1Gi
+  resources: {}
+
+gateway:
+  replicas: 1
+  inferenceBackend: anthropic
+  # High limits so the gateway isn't a bottleneck for load tests.
+  rateLimitPerMin: "6000000"
+  rateLimitBurst: "1000000"
+  resources: {}
+
+backend:
+  replicas: 1
+  resources: {}
+
+# Secrets — DO NOT put real values here. Provide them via a gitignored
+# values-secret.yaml (see values-secret.example.yaml):
+#   helm install tcf infra/k8s/tcf -f infra/k8s/tcf/values-secret.yaml
+secrets:
+  anthropicApiKey: ""
+  openaiApiKey: ""
+  postgresPassword: "tcf_pass"
+  langfusePublicKey: ""
+  langfuseSecretKey: ""
+  langfuseHost: ""
