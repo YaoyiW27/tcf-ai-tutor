@@ -29,6 +29,19 @@ PROMPT_TOKENS = int(os.environ.get("MOCK_PROMPT_TOKENS", "40"))
 COMPLETION_TOKENS = int(os.environ.get("MOCK_COMPLETION_TOKENS", "64"))
 CONTENT = "Apprendre une langue étrangère ouvre l'esprit et crée des opportunités."
 
+# Last request body the mock received — lets tests assert what the gateway sent.
+last_request: dict = {}
+
+
+def _reject_response_format(request: Request) -> bool:
+    """Whether to reject `response_format` (simulate an older vLLM).
+
+    Enabled per-request via env MOCK_REJECT_RESPONSE_FORMAT or ?reject_response_format=1.
+    """
+    if request.query_params.get("reject_response_format", "").lower() in {"1", "true", "yes"}:
+        return True
+    return os.environ.get("MOCK_REJECT_RESPONSE_FORMAT", "").lower() in {"1", "true", "yes"}
+
 
 @app.get("/health")
 def health() -> dict[str, str]:
@@ -38,6 +51,17 @@ def health() -> dict[str, str]:
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request) -> JSONResponse:
     body = await request.json()
+    global last_request
+    last_request = body
+
+    # Simulate a vLLM that doesn't accept OpenAI `response_format` (guided JSON
+    # must be sent as the top-level `guided_json` param instead).
+    if _reject_response_format(request) and body.get("response_format") is not None:
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"message": "response_format not supported", "type": "invalid_request_error"}},
+        )
+
     delay_ms = float(request.query_params.get("delay_ms", DEFAULT_DELAY_MS))
     if delay_ms > 0:
         await asyncio.sleep(delay_ms / 1000.0)

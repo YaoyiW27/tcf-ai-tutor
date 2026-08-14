@@ -27,28 +27,32 @@ docker run --gpus all -p 8000:8000 vllm/vllm-openai:latest \
   --api-key "$VLLM_KEY" --max-model-len 8192
 ```
 
-Expose `:8000` — a provider public URL, or from the Mac: `ssh -L 8000:localhost:8000 <box>` →
-the endpoint is `http://localhost:8000`. vLLM serves OpenAI-compatible `/v1/*` and Prometheus `/metrics`.
+Reach it from the Mac with an SSH tunnel (keeps the key off the public internet and out of chat):
+`ssh -L 8000:localhost:8000 <box>` → the endpoint is `http://localhost:8000`. vLLM serves
+OpenAI-compatible `/v1/*` and Prometheus `/metrics`.
 
 ## 2. Point the gateway at vLLM
-Run the gateway locally with:
-```bash
-INFERENCE_BACKEND=vllm \
-UPSTREAM_BASE_URL=<vllm-url>/v1 \
-UPSTREAM_API_KEY=$VLLM_KEY \
-uvicorn app.main:app --port 8001         # from gateway/
+Put the config in `gateway/.env` (gitignored — **don't paste the key into chat**):
 ```
+INFERENCE_BACKEND=vllm
+UPSTREAM_BASE_URL=http://localhost:8000/v1   # the SSH-tunnelled vLLM
+UPSTREAM_API_KEY=<vllm --api-key>
+```
+then run the gateway (`uvicorn app.main:app --port 8001` from `gateway/`). Structured output works
+across vLLM versions: recent vLLM accepts `response_format` json_schema; if it 400s, the gateway
+auto-retries with vLLM's top-level `guided_json` (see `_forward_backend`) — no app change.
 And the backend/workload requests this model id:
 ```bash
 INFERENCE_MODEL=Qwen/Qwen2.5-7B-Instruct   # gateway forwards the request model to vLLM
 ```
 
 ### Structured output
-The graders send `response_format: {type: json_schema, …}`; the gateway forwards it and recent vLLM
-supports guided JSON. If vLLM rejects `response_format`, fall back to `guided_json` via the OpenAI
-client's `extra_body` in `grader._structured_call` (and add a gateway test for the sanitized forward
-body). A 7B model's French-grading *quality* will trail Claude — that's expected; the goal is that
-grading runs end-to-end on the self-hosted model (the Argo eval gate may legitimately reject it).
+The graders always send OpenAI `response_format: {type: json_schema, …}`; the gateway handles the
+backend's quirks (the app never knows which backend is active). For vLLM the gateway forwards
+`response_format`; if the upstream 400s (older vLLM), it retries once with the top-level `guided_json`
+param — implemented + tested in `gateway/app/backends.py::_forward_backend`. A 7B model's French-grading
+*quality* will trail Claude — that's expected; the goal is that grading runs end-to-end on the
+self-hosted model (the Argo eval gate may legitimately reject it as a weaker candidate).
 
 ## 3. Benchmark FP16 vs AWQ
 Reuse the harness against the gateway → vLLM (raise the gateway rate limit for load):
@@ -60,8 +64,11 @@ python benchmarks/bench_gateway.py --url http://localhost:8001/v1 \
   --model Qwen/Qwen2.5-7B-Instruct --label vllm-awq --concurrency 1,4,8,16 --n 200
 python benchmarks/compare_results.py results/vllm-fp16-*.json results/vllm-awq-*.json
 ```
-Records latency p50/95/99, tokens/sec, QPS. (TTFT comes from vLLM's own metrics — step 4 — since the
-gateway forward path is non-streaming.)
+The client bench measures **end-to-end latency with the network in the path** (Mac → SSH tunnel →
+GPU) — use it only for *relative* FP16-vs-AWQ e2e comparison and tokens/sec/QPS, **not** as an absolute
+serving latency. **TTFT and true serving latency come from vLLM's own metrics** (step 4:
+`vllm:time_to_first_token_seconds`), not the client — the gateway forward path is non-streaming, and
+the client number would otherwise be dominated by internet RTT.
 
 ## 4. Scrape vLLM metrics → Grafana
 Add a scrape job for the vLLM `/metrics` target (see the commented block in

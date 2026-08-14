@@ -115,6 +115,25 @@ async def _anthropic_backend(body: dict) -> tuple[dict, int, int, float]:
     return out, usage.input_tokens, usage.output_tokens, upstream_seconds
 
 
+def _has_json_schema(body: dict) -> bool:
+    return (body.get("response_format") or {}).get("type") == "json_schema"
+
+
+def _to_guided_json(body: dict) -> dict:
+    """Translate OpenAI ``response_format: json_schema`` → vLLM's ``guided_json``.
+
+    Some (older) vLLM servers reject ``response_format`` and expect the schema as
+    the top-level ``guided_json`` param. Symmetric with ``_anthropic_backend``,
+    which translates the same schema to Anthropic's ``output_config`` — the app
+    never sees the backend's quirks (it always sends OpenAI ``response_format``).
+    """
+    out = dict(body)
+    schema = (out.pop("response_format", {}) or {}).get("json_schema", {}).get("schema")
+    if schema is not None:
+        out["guided_json"] = schema
+    return out
+
+
 async def _forward_backend(body: dict) -> tuple[dict, int, int, float]:
     if not settings.upstream_base_url:
         raise RuntimeError("UPSTREAM_BASE_URL is not set")
@@ -123,6 +142,10 @@ async def _forward_backend(body: dict) -> tuple[dict, int, int, float]:
     async with httpx.AsyncClient(timeout=120) as client:
         upstream_start = time.perf_counter()
         resp = await client.post(url, json=body, headers=headers)
+        # Fallback: an upstream that rejects response_format (older vLLM) gets one
+        # retry with the deprecated top-level guided_json param.
+        if resp.status_code == 400 and _has_json_schema(body):
+            resp = await client.post(url, json=_to_guided_json(body), headers=headers)
         resp.raise_for_status()
         data = resp.json()
         upstream_seconds = time.perf_counter() - upstream_start
