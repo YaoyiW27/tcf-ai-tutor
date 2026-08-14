@@ -1,0 +1,27 @@
+# prometheus-adapter: expose gateway_inflight_requests as a per-pod custom metric
+# so the gateway HPA can scale on it. Install (after kube-prometheus-stack):
+#   helm install prometheus-adapter prometheus-community/prometheus-adapter \
+#     -n monitoring -f prometheus-adapter.values.yaml
+#
+# The Prometheus URL assumes kube-prometheus-stack was installed as release "kps"
+# in the "monitoring" namespace.
+prometheus:
+  url: http://kps-kube-prometheus-stack-prometheus.monitoring.svc
+  port: 9090
+
+rules:
+  default: false
+  custom:
+    - seriesQuery: 'gateway_inflight_requests{namespace!="",pod!=""}'
+      resources:
+        overrides:
+          namespace:
+            resource: namespace
+          pod:
+            resource: pod
+      name:
+        matches: "gateway_inflight_requests"
+        as: "gateway_inflight_requests"
+      # Average the gauge per pod (the gauge is per gateway pod already; avg keeps
+      # it stable if multiple series exist).
+      metricsQuery: 'avg(<<.Series>>{<<.LabelMatchers>>}) by (<<.GroupBy>>)'
