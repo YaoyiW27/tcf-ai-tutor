@@ -22,7 +22,7 @@ Observability — Prometheus + Grafana                                 built (ga
         │
 Orchestration — Kubernetes (kind) · Helm · HPA                       built (kind)
         │
-Model pipeline — Argo Workflows · model registry                     planned
+Model pipeline — Argo Workflows · model registry                     built
 ```
 
 ## Components
@@ -31,7 +31,7 @@ Model pipeline — Argo Workflows · model registry                     planned
 - **Model serving** *(planned)* — vLLM serving an open-weight model (e.g. Qwen2.5-7B-Instruct) over an OpenAI-compatible API, with continuous batching and AWQ/GPTQ quantization. Runs on a rented GPU.
 - **Observability** *(built for the gateway)* — Prometheus scrapes the gateway (`infra/observability/`); a Grafana dashboard shows QPS, error rate, latency p50/95/99, gateway overhead, tokens/sec, and cost, faceted by an `impl` label for A/B comparison. GPU/VRAM/KV-cache panels come with vLLM.
 - **Orchestration** *(built on kind)* — a Helm chart deploys the stack ([infra/k8s/](infra/k8s/)); kube-prometheus-stack scrapes the gateway and an HPA autoscales it on `gateway_inflight_requests` via prometheus-adapter (demonstrated scaling under load). GPU-aware HPA comes with vLLM.
-- **Model pipeline** *(planned)* — Argo Workflows: pull model weights → run the eval suite → compare against the current baseline → rolling-update the vLLM deployment on pass, else notify.
+- **Model pipeline** *(built on kind)* — an Argo Workflows DAG evaluates a candidate model with the real grader regression, gates on it, and on pass records it in a model registry + rolls the backend to it (fail → notify, production untouched). See [pipeline/](pipeline/). Today the candidate is a hosted model; the same flow swaps a vLLM-served version later.
 - **Workload** *(built)* — FastAPI + LangGraph writing/speaking graders and a turn-based voice examiner; PostgreSQL + Alembic; Langfuse tracing; a Next.js UI. Text generation uses Anthropic Claude today; STT/TTS use OpenAI. See [backend/README.md](backend/README.md).
 
 ## Stack
@@ -132,7 +132,7 @@ Built:
 - [x] Kubernetes (kind) — Helm chart deploys gateway + backend + Postgres ([infra/k8s/](infra/k8s/)); kube-prometheus-stack scrapes the gateway and an HPA autoscales it on `gateway_inflight_requests` (prometheus-adapter), verified scaling under load
 
 Planned:
-- [ ] Model pipeline — Argo Workflows eval → gate → rolling update, model registry
+- [x] Model pipeline — Argo Workflows eval → gate → promote (rolling update + model registry), verified pass/fail gates on kind
 - [ ] vLLM serving on GPU — FP16-vs-AWQ benchmarks, GPU metrics, GPU-aware HPA
 
 Sequencing note: only vLLM needs a GPU, so the GPU-independent layers are built and validated on the Mac first; vLLM is added last on a rented GPU. Rationale in [docs/architecture-v2-infra.md](docs/architecture-v2-infra.md).
@@ -146,7 +146,7 @@ tcf-ai-tutor/
 ├── gateway/          # Inference gateway (+ Dockerfile)
 ├── infra/            # compose/ (full stack) · observability/ (Prom+Grafana) · k8s/ (kind + Helm chart)
 ├── benchmarks/       # Serving benchmarks + results (planned)
-├── pipeline/         # Argo Workflows eval pipeline + model registry (planned)
+├── pipeline/         # Argo Workflows model-eval → gate → promote + model registry
 ├── docs/             # Architecture (v1 workload, v2 infra), build plan, dev log
 ├── CLAUDE.md         # Guidance for Claude Code
 └── README.md

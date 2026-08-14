@@ -214,10 +214,19 @@
 - **Verified the full autoscaling loop on kind:** custom-metrics API served the metric; `kubectl get hpa` read it live (`TARGETS 0/5`, not `<unknown>`); driving load (bench → gateway → in-cluster mock) pushed in-flight to **12/5 per pod** and the HPA emitted `SuccessfulRescale … New size: 3; reason: pods metric gateway_inflight_requests above target` — gateway scaled **1 → 3**. Dashboard imported into the in-cluster Grafana via a labeled ConfigMap.
 - Gotchas: (1) the first ~30s the HPA logged `FailedGetPodsMetric` until prometheus-adapter registered the metric — expected, then it scaled. (2) `kubectl port-forward` is a single connection and drops under 64-way load (bench showed "Connection error" tail) — a forwarding artifact, not a gateway failure; an in-cluster load generator would be cleaner. (3) HPA scale-**down** waits the default 5-min stabilization window.
 
+## 2026-08-14
+
+### Argo Workflows — model-eval → gate → promote pipeline (last GPU-free layer)
+- Made the backend model **configurable**: `grader.MODEL = settings.inference_model` (env `INFERENCE_MODEL`, default sonnet); chart sets it on the backend Deployment. So "promoting a model" = patching that env (rolling update) — the same flow that will swap a vLLM-served version later. `eval_grader` grades via this model with no DB, so an eval pod with `INFERENCE_MODEL=<candidate>` evaluates that candidate.
+- `pipeline/`: a `WorkflowTemplate` (`model-eval-promote`) with a DAG gate — `eval` (backend image runs the real `eval_grader` against the in-cluster gateway) → `promote` (`depends: eval.Succeeded`) → `notify-fail` (`depends: eval.Failed`). Promote appends `{model,result,promoted_at}` to a `tcf-model-registry` ConfigMap (kubectl+jq) and `kubectl set env deploy/tcf-backend INFERENCE_MODEL=<candidate>`. Plus RBAC (SA `tcf-pipeline`: workflowtaskresults + configmaps/deployments patch) and a **suspended** CronWorkflow (avoids scheduled Claude cost). Submit via `kubectl create` (no argo CLI needed).
+- **Verified both gate outcomes on kind** (Argo v3.6.2, cluster install):
+  - **Fail** (`candidate-model=not-a-real-model`): `eval` Failed fast (bad model errors, ~no Claude cost) → `promote` **Omitted** → `notify-fail` ran → registry stayed `[]`, backend model unchanged. Gate rejected cleanly.
+  - **Pass** (`candidate-model=claude-sonnet-4-6`): real grader regression passed (~2 min) → `promote` ran → registry gained the entry → backend Deployment rolled to `INFERENCE_MODEL=claude-sonnet-4-6`.
+- Gotcha: `.status.nodes` is a map (not a list) — jsonpath `range` over it errors; iterate the values instead. **The entire GPU-free infra stack is now built** (gateway → observability → containers → K8s+autoscaling → Argo pipeline).
+
 ## Next up
-- **Argo Workflows** eval pipeline + a simple model registry (eval → gate → rolling update), reusing the `eval_*` scripts.
-- Then: **vLLM serving on a cloud GPU** (FP16 vs AWQ benchmarks, GPU metrics into Grafana, GPU-aware HPA) — the last GPU-dependent layer.
-- Future: the **Rust gateway** A/B (`docs/rust-gateway-benchmark.md`).
+- **vLLM serving on a rented cloud GPU** — the last, GPU-dependent layer: OpenAI-compatible vLLM behind the gateway (`INFERENCE_BACKEND=vllm`), FP16-vs-AWQ benchmarks (reuse `bench_gateway.py`), GPU metrics into Grafana, GPU-aware HPA. The `INFERENCE_MODEL` promotion flow becomes the vLLM model-version swap.
+- Future: the **Rust gateway** A/B (`docs/rust-gateway-benchmark.md`); deferred workload items (Speaking UI, WPM signal, pgvector RAG).
 - Future: the **Rust gateway** experiment (see `docs/rust-gateway-benchmark.md`).
 - Deferred workload items: conversational Speaking **UI** (wired to `/speaking/sessions`); Whisper `verbose_json` → words-per-minute fluency signal; scoring-reference RAG (pgvector).
 - Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI.
