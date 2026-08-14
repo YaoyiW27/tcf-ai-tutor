@@ -68,7 +68,9 @@ def nclc_band_for(level: str) -> tuple[str | None, str | None]:
     """
     return NCLC_ECRIT_BANDS.get(level, (None, None))
 
-MODEL = "claude-sonnet-4-6"
+# The model requested from the gateway. Sourced from settings (env
+# INFERENCE_MODEL) so it can be swapped by config/deploy — see app.config.
+MODEL = settings.inference_model
 
 _EXAMINER = """You are an experienced TCF Canada (Test de connaissance du \
 français) examiner grading the "Expression écrite" (Writing) section."""

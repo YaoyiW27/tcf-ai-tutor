@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     # OpenAI directly (openai_api_key below).
     gateway_url: str = "http://localhost:8001"
 
+    # Model the graders/examiner request from the gateway. Configurable so the
+    # Argo eval pipeline can evaluate + promote a candidate model by setting
+    # INFERENCE_MODEL (rolling the backend), without a code change.
+    inference_model: str = "claude-sonnet-4-6"
+
     # Kept for reference / local scripts; the backend no longer calls Anthropic
     # directly (the gateway does). Safe to leave set in .env.
     anthropic_api_key: str | None = None

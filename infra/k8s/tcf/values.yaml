@@ -32,6 +32,9 @@ gateway:
 
 backend:
   replicas: 1
+  # Model the backend requests from the gateway. The Argo pipeline promotes a
+  # candidate by patching this env on the Deployment.
+  inferenceModel: claude-sonnet-4-6
   resources: {}
 
 # Deterministic mock upstream for the autoscaling load demo (free, no Anthropic).

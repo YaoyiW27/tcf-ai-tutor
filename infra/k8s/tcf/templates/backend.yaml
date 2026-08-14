@@ -38,6 +38,8 @@ spec:
           env:
             - name: GATEWAY_URL
               value: "http://{{ include "tcf.fullname" . }}-gateway:8001"
+            - name: INFERENCE_MODEL
+              value: {{ .Values.backend.inferenceModel | quote }}
           ports:
             - name: http
               containerPort: 8000
