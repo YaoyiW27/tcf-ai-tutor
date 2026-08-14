@@ -2,6 +2,9 @@
 
 ## 2026-08-14 (later)
 
+### CI — GitHub Actions
+- `.github/workflows/ci.yml` runs on push (main) + PRs: a `tests` matrix job (`gateway`, `backend`) that installs `requirements-dev.txt` and runs `pytest` per service (no DB/services — everything's mocked; backend conftest sets a dummy `DATABASE_URL`), plus an `infra-validate` job (`helm lint`/`template` the chart + `docker compose config`). Operationalizes the tests-as-DoD rule. CI badge in the README.
+
 ### Testing regime — tests are Definition of Done (project rule)
 - **Rule (now in CLAUDE.md):** every slice that writes or changes code ships with tests in the
   **same** slice — a feature without a passing test isn't done; don't backfill later. Future plans

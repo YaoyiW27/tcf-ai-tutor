@@ -1,5 +1,7 @@
 # tcf-ai-tutor — Self-hosted LLM inference stack with observability and automated deployment pipeline
 
+[![CI](https://github.com/YaoyiW27/tcf-ai-tutor/actions/workflows/ci.yml/badge.svg)](https://github.com/YaoyiW27/tcf-ai-tutor/actions/workflows/ci.yml)
+
 An inference gateway — request routing, token and cost accounting, rate limiting, and Prometheus metrics — sits in front of an open-weight LLM served by vLLM. The stack runs on Kubernetes with Prometheus/Grafana monitoring and an Argo Workflows pipeline that evaluates candidate models and rolls them out when they beat the current baseline. The workload it serves is a TCF Canada French-exam tutor: LangGraph writing and speaking graders and a turn-based voice examiner.
 
 Text generation sits behind an `INFERENCE_BACKEND` switch (`anthropic` | `openai` | `vllm`), so the workload runs unchanged against a hosted API or the self-hosted model. Speech-to-text (Whisper) and text-to-speech run on OpenAI. Each serving configuration is benchmarked — TTFT, tokens/sec, P50/95/99 latency, QPS, cost per request.

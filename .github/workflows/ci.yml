@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: tests (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [gateway, backend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: ${{ matrix.service }}/requirements-dev.txt
+      - name: Install (test deps)
+        working-directory: ${{ matrix.service }}
+        run: pip install -r requirements-dev.txt
+      - name: pytest
+        working-directory: ${{ matrix.service }}
+        # All external deps (LLM APIs, DB, network) are mocked — no services needed.
+        run: pytest -q
+
+  infra-validate:
+    name: infra manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: helm lint + template
+        run: |
+          helm lint infra/k8s/tcf --set secrets.anthropicApiKey=x
+          helm template tcf infra/k8s/tcf --set secrets.anthropicApiKey=x >/dev/null
+      - name: docker compose config
+        run: docker compose -f infra/compose/docker-compose.yml config -q
