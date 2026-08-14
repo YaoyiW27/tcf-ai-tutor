@@ -1,5 +1,20 @@
 # Dev Log
 
+## 2026-08-14 (later)
+
+### Testing regime — tests are Definition of Done (project rule)
+- **Rule (now in CLAUDE.md):** every slice that writes or changes code ships with tests in the
+  **same** slice — a feature without a passing test isn't done; don't backfill later. Future plans
+  must include that slice's tests.
+- **Principles:** pytest (`gateway/tests/`, `backend/tests/`); **mock all external deps** (LLM
+  APIs, DB, network) — fast, free, deterministic, **never** a real LLM call. Test our own logic
+  (parsing, routing, rate-limiting, scoring, gate decisions), not model quality or third-party libs.
+  Clear test names; high-value critical-path tests over coverage padding. `pyproject.toml` holds the
+  pytest config so `pytest` runs the whole suite per service.
+- Backfilling three key layers in review-gated steps: (1) gateway metric contract (guards the
+  `/metrics` names/labels vs the Grafana PromQL), (2) gateway logic (rate limit, backend routing,
+  error handling), (3) grader/eval logic (score parsing, gate decisions).
+
 ## 2026-05-19
 - Initial repo, README, LICENSE, .gitignore
 - Resolved divergent histories (GitHub auto-init vs local init)

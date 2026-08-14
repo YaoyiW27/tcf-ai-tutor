@@ -1,0 +1,8 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# So `import app` resolves when running `pytest` from gateway/.
+pythonpath = ["."]
+# Graph/backend handlers are async; let pytest-asyncio pick up async tests
+# without a per-test marker.
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

@@ -56,8 +56,14 @@ and optional `LANGFUSE_*`. The app boots without the API keys; the relevant endp
 - **Measurement-first:** infra work must produce reproducible data (TTFT, tokens/sec,
   P50/95/99, QPS, cost/req), not just "it runs". Put benchmark scripts + results under
   `benchmarks/`.
-- **Code quality:** type hints, docstrings, and at least basic tests/evals — this is a
-  real system, keep it clean. Match the existing style in `backend/app/**`.
+- **Tests are part of Definition of Done (required):** every slice that writes or changes code
+  ships with tests **in the same slice** (not added later) — a feature without a passing test
+  is not done. Use **pytest** (`gateway/tests/`, `backend/tests/`). **Mock all external deps**
+  (LLM APIs, DB, network) — tests must be fast, free, and deterministic; **never** call a real
+  LLM API. Test *our* logic (parsing, routing, rate-limiting, scoring, gate decisions), not model
+  quality or third-party libraries. Run: `cd gateway && pytest` / `cd backend && pytest`.
+- **Code quality:** type hints, docstrings — this is a real system, keep it clean. Match the
+  existing style in `backend/app/**`.
 - **Sequencing — GPU-free first:** build the gateway, observability, K8s (kind), and Argo
   locally with no GPU; vLLM comes **last** on a rented cloud GPU (the dev machine is a Mac,
   no CUDA). Don't try to run vLLM locally.
