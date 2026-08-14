@@ -20,7 +20,7 @@ Model serving — vLLM, OpenAI-compatible                              planned
 Observability — Prometheus + Grafana                                 built (gateway)
   (QPS · P50/95/99 · overhead · tokens · cost; GPU panels w/ vLLM)
         │
-Orchestration — Kubernetes (kind/k3s) · Helm · HPA                   planned
+Orchestration — Kubernetes (kind) · Helm · HPA                       built (kind)
         │
 Model pipeline — Argo Workflows · model registry                     planned
 ```
@@ -30,7 +30,7 @@ Model pipeline — Argo Workflows · model registry                     planned
 - **Inference gateway** *(built)* — a standalone OpenAI-compatible service (`gateway/`). The app calls it instead of an LLM SDK directly; it routes to the selected backend (`INFERENCE_BACKEND=anthropic|openai|vllm`), counts tokens, rate-limits per key, records latency/cost, and exposes Prometheus metrics at `/metrics`. Text grading + the examiner run through it today with the anthropic backend.
 - **Model serving** *(planned)* — vLLM serving an open-weight model (e.g. Qwen2.5-7B-Instruct) over an OpenAI-compatible API, with continuous batching and AWQ/GPTQ quantization. Runs on a rented GPU.
 - **Observability** *(built for the gateway)* — Prometheus scrapes the gateway (`infra/observability/`); a Grafana dashboard shows QPS, error rate, latency p50/95/99, gateway overhead, tokens/sec, and cost, faceted by an `impl` label for A/B comparison. GPU/VRAM/KV-cache panels come with vLLM.
-- **Orchestration** *(planned)* — Kubernetes (kind locally), Helm, HPA driven by queue depth / GPU utilization.
+- **Orchestration** *(built on kind)* — a Helm chart deploys the stack ([infra/k8s/](infra/k8s/)); kube-prometheus-stack scrapes the gateway and an HPA autoscales it on `gateway_inflight_requests` via prometheus-adapter (demonstrated scaling under load). GPU-aware HPA comes with vLLM.
 - **Model pipeline** *(planned)* — Argo Workflows: pull model weights → run the eval suite → compare against the current baseline → rolling-update the vLLM deployment on pass, else notify.
 - **Workload** *(built)* — FastAPI + LangGraph writing/speaking graders and a turn-based voice examiner; PostgreSQL + Alembic; Langfuse tracing; a Next.js UI. Text generation uses Anthropic Claude today; STT/TTS use OpenAI. See [backend/README.md](backend/README.md).
 
@@ -129,8 +129,7 @@ Built:
 - [x] Observability — Prometheus + Grafana dashboards scraping the gateway; reusable benchmark harness (mock upstream + concurrency sweep) faceted by `impl` for an A/B (see [docs/rust-gateway-benchmark.md](docs/rust-gateway-benchmark.md))
 - [x] Containerized stack — Dockerfiles (gateway + backend) + one-command `docker compose` (Postgres + gateway + backend + Prometheus + Grafana); see [infra/compose/](infra/compose/)
 
-In progress:
-- [~] Kubernetes (kind) — Helm chart deploys gateway + backend + Postgres ([infra/k8s/](infra/k8s/)); kube-prometheus-stack + HPA on a gateway metric next
+- [x] Kubernetes (kind) — Helm chart deploys gateway + backend + Postgres ([infra/k8s/](infra/k8s/)); kube-prometheus-stack scrapes the gateway and an HPA autoscales it on `gateway_inflight_requests` (prometheus-adapter), verified scaling under load
 
 Planned:
 - [ ] Model pipeline — Argo Workflows eval → gate → rolling update, model registry

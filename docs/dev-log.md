@@ -205,9 +205,19 @@
 - **Verified end-to-end on kind:** `helm install` → all 3 deployments rolled out → init ran both migrations + seeded 18 questions → `port-forward svc/tcf-backend` → submitted + graded an answer (backend pod → gateway pod → Anthropic) returning real A2 CEFR feedback. Teardown clean (`helm uninstall` + `kind delete cluster`).
 - Gotcha: Langfuse values in `infra/compose/.env` were already double-quoted; naively re-quoting them into `values-secret.yaml` broke YAML — strip surrounding quotes when generating. Secrets live in a gitignored `values-secret.yaml` (only `*.example.yaml` committed; added a `values-secret.yaml` gitignore rule).
 
+## 2026-08-13 (3b-ii)
+
+### In-cluster monitoring + HPA — autoscale the gateway on a custom metric
+- **kube-prometheus-stack** via Helm (`monitoring` ns), trimmed for kind (no alertmanager/node-exporter/kube-state-metrics/defaultRules; `serviceMonitorSelectorNilUsesHelmValues=false` so it picks up our ServiceMonitor). Values in `infra/k8s/monitoring/`.
+- Chart gained flag-gated **ServiceMonitor** (scrapes the gateway `/metrics`, adds `impl=python` via relabel), **HPA** (`autoscaling/v2`, Pods metric on `gateway_inflight_requests`, avg target 5, 1→5), and a **mock upstream** (Deployment+Service from a new `benchmarks/Dockerfile.mock`) so the load demo is free. Gateway gained an `upstreamBaseUrl` value to point its forward path at the mock.
+- **prometheus-adapter** exposes `gateway_inflight_requests` as a per-pod custom metric (`custom.metrics.k8s.io`) with an `avg by (pod)` rule pointed at the kps Prometheus.
+- **Verified the full autoscaling loop on kind:** custom-metrics API served the metric; `kubectl get hpa` read it live (`TARGETS 0/5`, not `<unknown>`); driving load (bench → gateway → in-cluster mock) pushed in-flight to **12/5 per pod** and the HPA emitted `SuccessfulRescale … New size: 3; reason: pods metric gateway_inflight_requests above target` — gateway scaled **1 → 3**. Dashboard imported into the in-cluster Grafana via a labeled ConfigMap.
+- Gotchas: (1) the first ~30s the HPA logged `FailedGetPodsMetric` until prometheus-adapter registered the metric — expected, then it scaled. (2) `kubectl port-forward` is a single connection and drops under 64-way load (bench showed "Connection error" tail) — a forwarding artifact, not a gateway failure; an in-cluster load generator would be cleaner. (3) HPA scale-**down** waits the default 5-min stabilization window.
+
 ## Next up
-- **3b-ii — in-cluster monitoring + HPA:** kube-prometheus-stack (Prometheus Operator + Grafana) via Helm; a `ServiceMonitor` scraping the gateway (`impl=python` via relabel) + import the existing dashboard; prometheus-adapter to expose a gateway metric (in-flight / QPS) to the HPA; demonstrate autoscaling under load.
-- Then: Argo eval pipeline + model registry → vLLM serving on a cloud GPU (FP16 vs AWQ benchmarks, GPU metrics, GPU-aware HPA).
+- **Argo Workflows** eval pipeline + a simple model registry (eval → gate → rolling update), reusing the `eval_*` scripts.
+- Then: **vLLM serving on a cloud GPU** (FP16 vs AWQ benchmarks, GPU metrics into Grafana, GPU-aware HPA) — the last GPU-dependent layer.
+- Future: the **Rust gateway** A/B (`docs/rust-gateway-benchmark.md`).
 - Future: the **Rust gateway** experiment (see `docs/rust-gateway-benchmark.md`).
 - Deferred workload items: conversational Speaking **UI** (wired to `/speaking/sessions`); Whisper `verbose_json` → words-per-minute fluency signal; scoring-reference RAG (pgvector).
 - Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI.

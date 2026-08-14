@@ -2,8 +2,9 @@
 
 Runs the stack on a local Kubernetes cluster: **Postgres + inference gateway + backend**,
 deployed by the hand-written Helm chart in `tcf/`. Access is via `kubectl port-forward`
-(no Ingress). In-cluster monitoring (kube-prometheus-stack) and an HPA on a gateway metric
-are the next sub-slice.
+(no Ingress). For in-cluster monitoring (kube-prometheus-stack) and **autoscaling the gateway
+on `gateway_inflight_requests`** (prometheus-adapter + HPA), see
+[monitoring/](monitoring/).
 
 ## Prerequisites
 `docker`, `kind`, `kubectl`, `helm`.
