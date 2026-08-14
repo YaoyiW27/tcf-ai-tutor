@@ -129,8 +129,10 @@ Built:
 - [x] Observability — Prometheus + Grafana dashboards scraping the gateway; reusable benchmark harness (mock upstream + concurrency sweep) faceted by `impl` for an A/B (see [docs/rust-gateway-benchmark.md](docs/rust-gateway-benchmark.md))
 - [x] Containerized stack — Dockerfiles (gateway + backend) + one-command `docker compose` (Postgres + gateway + backend + Prometheus + Grafana); see [infra/compose/](infra/compose/)
 
+In progress:
+- [~] Kubernetes (kind) — Helm chart deploys gateway + backend + Postgres ([infra/k8s/](infra/k8s/)); kube-prometheus-stack + HPA on a gateway metric next
+
 Planned:
-- [ ] Kubernetes (kind/k3s) — Helm, kube-prometheus-stack, HPA
 - [ ] Model pipeline — Argo Workflows eval → gate → rolling update, model registry
 - [ ] vLLM serving on GPU — FP16-vs-AWQ benchmarks, GPU metrics, GPU-aware HPA
 
@@ -143,7 +145,7 @@ tcf-ai-tutor/
 ├── backend/          # Application layer — FastAPI tutor (Python 3.11)
 ├── frontend/         # Next.js 16 (App Router) + Tailwind v4 + shadcn/ui
 ├── gateway/          # Inference gateway (+ Dockerfile)
-├── infra/            # compose/ (full stack) · observability/ (Prom+Grafana); K8s/Helm planned
+├── infra/            # compose/ (full stack) · observability/ (Prom+Grafana) · k8s/ (kind + Helm chart)
 ├── benchmarks/       # Serving benchmarks + results (planned)
 ├── pipeline/         # Argo Workflows eval pipeline + model registry (planned)
 ├── docs/             # Architecture (v1 workload, v2 infra), build plan, dev log

@@ -195,8 +195,18 @@
 - **Verified end-to-end in containers:** `docker compose up --build` → backend entrypoint ran both migrations + seeded 18 questions → submitted + graded an answer (backend → gateway container → Anthropic) returning real CEFR feedback → Prometheus target `up` scraping `gateway:8001` with the grade's requests visible → Grafana healthy with the dashboard. `down -v` clean.
 - Gotcha: leftover `tcf-prometheus`/`tcf-grafana` containers from the `infra/observability/` stack held :9090/:3001 — brought that stack down first.
 
+## 2026-08-13 (later)
+
+### Deploy to Kubernetes — kind + Helm (slice 3b-i)
+- Split the K8s work: **this slice = app on kind via Helm** (Postgres + gateway + backend). In-cluster monitoring (kube-prometheus-stack) + **HPA on a gateway metric** is the next sub-slice (3b-ii) — it's large and needs the app running first.
+- Hand-written Helm chart `infra/k8s/tcf/` (no external chart deps): Secret (with a fully-formed async `DATABASE_URL`), Postgres (Deployment + Service + PVC on kind's local-path storageclass), gateway + backend Deployments/Services. `helm lint` clean.
+- **Migrations run in a backend `initContainer`, not a Helm pre-install hook** — a pre-install hook runs *before* Postgres exists (would fail); K8s retries the initContainer until Postgres is reachable, and `alembic upgrade` + seed are idempotent. App container overrides the image entrypoint to run uvicorn only (migrate is the init's job).
+- Images: reused the compose-built images, tagged `tcf-gateway:dev` / `tcf-backend:dev`, `kind load`-ed (kind can't pull local images; `imagePullPolicy: IfNotPresent`).
+- **Verified end-to-end on kind:** `helm install` → all 3 deployments rolled out → init ran both migrations + seeded 18 questions → `port-forward svc/tcf-backend` → submitted + graded an answer (backend pod → gateway pod → Anthropic) returning real A2 CEFR feedback. Teardown clean (`helm uninstall` + `kind delete cluster`).
+- Gotcha: Langfuse values in `infra/compose/.env` were already double-quoted; naively re-quoting them into `values-secret.yaml` broke YAML — strip surrounding quotes when generating. Secrets live in a gitignored `values-secret.yaml` (only `*.example.yaml` committed; added a `values-secret.yaml` gitignore rule).
+
 ## Next up
-- **K8s (kind)**: install kubectl + helm; Helm chart for gateway + backend + Postgres; kube-prometheus-stack; HPA on a gateway metric (in-flight or QPS via prometheus-adapter). Migrations move to an init Job.
+- **3b-ii — in-cluster monitoring + HPA:** kube-prometheus-stack (Prometheus Operator + Grafana) via Helm; a `ServiceMonitor` scraping the gateway (`impl=python` via relabel) + import the existing dashboard; prometheus-adapter to expose a gateway metric (in-flight / QPS) to the HPA; demonstrate autoscaling under load.
 - Then: Argo eval pipeline + model registry → vLLM serving on a cloud GPU (FP16 vs AWQ benchmarks, GPU metrics, GPU-aware HPA).
 - Future: the **Rust gateway** experiment (see `docs/rust-gateway-benchmark.md`).
 - Deferred workload items: conversational Speaking **UI** (wired to `/speaking/sessions`); Whisper `verbose_json` → words-per-minute fluency signal; scoring-reference RAG (pgvector).
