@@ -1,0 +1,48 @@
+{{- if .Values.mockUpstream.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tcf.fullname" . }}-mock
+  labels:
+    {{- include "tcf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mock
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "tcf.selectorLabels" (dict "root" . "component" "mock") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "tcf.selectorLabels" (dict "root" . "component" "mock") | nindent 8 }}
+    spec:
+      containers:
+        - name: mock
+          image: "{{ .Values.mockUpstream.image.repository }}:{{ .Values.mockUpstream.image.tag }}"
+          imagePullPolicy: {{ .Values.mockUpstream.image.pullPolicy }}
+          env:
+            - name: MOCK_DELAY_MS
+              value: {{ .Values.mockUpstream.delayMs | quote }}
+          ports:
+            - name: http
+              containerPort: 9000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tcf.fullname" . }}-mock
+  labels:
+    {{- include "tcf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mock
+spec:
+  selector:
+    {{- include "tcf.selectorLabels" (dict "root" . "component" "mock") | nindent 4 }}
+  ports:
+    - name: http
+      port: 9000
+      targetPort: http
+{{- end }}

@@ -21,6 +21,10 @@ postgres:
 gateway:
   replicas: 1
   inferenceBackend: anthropic
+  # When set (with inferenceBackend: openai|vllm) the gateway forwards to this
+  # upstream instead of Anthropic — used to point at the in-cluster mock for the
+  # autoscaling load demo.
+  upstreamBaseUrl: ""
   # High limits so the gateway isn't a bottleneck for load tests.
   rateLimitPerMin: "6000000"
   rateLimitBurst: "1000000"
@@ -29,6 +33,31 @@ gateway:
 backend:
   replicas: 1
   resources: {}
+
+# Deterministic mock upstream for the autoscaling load demo (free, no Anthropic).
+# Enable it and point the gateway at it:
+#   --set mockUpstream.enabled=true --set gateway.inferenceBackend=openai \
+#   --set gateway.upstreamBaseUrl=http://<release>-mock:9000/v1
+mockUpstream:
+  enabled: false
+  image:
+    repository: tcf-mock
+    tag: dev
+    pullPolicy: IfNotPresent
+  delayMs: "100"
+
+# Prometheus Operator ServiceMonitor to scrape the gateway /metrics (needs
+# kube-prometheus-stack installed). Adds impl=python via relabel.
+serviceMonitor:
+  enabled: false
+
+# HorizontalPodAutoscaler for the gateway on gateway_inflight_requests
+# (needs prometheus-adapter exposing the custom metric).
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetInflight: "5"
 
 # Secrets — DO NOT put real values here. Provide them via a gitignored
 # values-secret.yaml (see values-secret.example.yaml):

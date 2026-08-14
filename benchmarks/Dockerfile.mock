@@ -1,0 +1,8 @@
+# Deterministic mock upstream (mock_upstream.py) for the in-cluster load / HPA demo.
+FROM python:3.11-slim
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+RUN pip install fastapi uvicorn
+COPY mock_upstream.py ./mock_upstream.py
+EXPOSE 9000
+CMD ["uvicorn", "mock_upstream:app", "--host", "0.0.0.0", "--port", "9000"]

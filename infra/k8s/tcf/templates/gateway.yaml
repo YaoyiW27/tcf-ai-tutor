@@ -22,6 +22,10 @@ spec:
           env:
             - name: INFERENCE_BACKEND
               value: {{ .Values.gateway.inferenceBackend | quote }}
+            {{- if .Values.gateway.upstreamBaseUrl }}
+            - name: UPSTREAM_BASE_URL
+              value: {{ .Values.gateway.upstreamBaseUrl | quote }}
+            {{- end }}
             - name: RATE_LIMIT_PER_MIN
               value: {{ .Values.gateway.rateLimitPerMin | quote }}
             - name: RATE_LIMIT_BURST
