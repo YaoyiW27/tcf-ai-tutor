@@ -14,3 +14,11 @@ scrape_configs:
       # - targets: ["host.docker.internal:8002"]
       #   labels:
       #     impl: rust
+
+  # vLLM serving metrics (feeds the "vLLM Serving" dashboard). Set the target to
+  # your rented vLLM endpoint host:port, then restart prometheus. See
+  # docs/vllm-runbook.md. vLLM's /metrics is unauthenticated by default.
+  # - job_name: vllm
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ["host.docker.internal:8000"]   # or the public vLLM host:port

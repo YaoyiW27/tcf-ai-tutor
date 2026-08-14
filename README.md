@@ -16,7 +16,7 @@ Application — TCF tutor (FastAPI + LangGraph graders + Next.js UI)   built
 Inference gateway (routing · token/cost accounting ·                 built
   rate limiting · /metrics)
         │
-Model serving — vLLM, OpenAI-compatible                              planned
+Model serving — vLLM, OpenAI-compatible                              in progress
   (continuous batching · KV cache · AWQ/GPTQ)
         │
 Observability — Prometheus + Grafana                                 built (gateway)
@@ -30,7 +30,7 @@ Model pipeline — Argo Workflows · model registry                     built
 ## Components
 
 - **Inference gateway** *(built)* — a standalone OpenAI-compatible service (`gateway/`). The app calls it instead of an LLM SDK directly; it routes to the selected backend (`INFERENCE_BACKEND=anthropic|openai|vllm`), counts tokens, rate-limits per key, records latency/cost, and exposes Prometheus metrics at `/metrics`. Text grading + the examiner run through it today with the anthropic backend.
-- **Model serving** *(planned)* — vLLM serving an open-weight model (e.g. Qwen2.5-7B-Instruct) over an OpenAI-compatible API, with continuous batching and AWQ/GPTQ quantization. Runs on a rented GPU.
+- **Model serving** *(in progress)* — vLLM serving Qwen2.5-7B-Instruct over an OpenAI-compatible API (continuous batching, AWQ/GPTQ), on a rented GPU, behind the gateway's `vllm` backend. Runbook + Grafana dashboard ready ([docs/vllm-runbook.md](docs/vllm-runbook.md)); live FP16-vs-AWQ benchmarks pending the GPU.
 - **Observability** *(built for the gateway)* — Prometheus scrapes the gateway (`infra/observability/`); a Grafana dashboard shows QPS, error rate, latency p50/95/99, gateway overhead, tokens/sec, and cost, faceted by an `impl` label for A/B comparison. GPU/VRAM/KV-cache panels come with vLLM.
 - **Orchestration** *(built on kind)* — a Helm chart deploys the stack ([infra/k8s/](infra/k8s/)); kube-prometheus-stack scrapes the gateway and an HPA autoscales it on `gateway_inflight_requests` via prometheus-adapter (demonstrated scaling under load). GPU-aware HPA comes with vLLM.
 - **Model pipeline** *(built on kind)* — an Argo Workflows DAG evaluates a candidate model with the real grader regression, gates on it, and on pass records it in a model registry + rolls the backend to it (fail → notify, production untouched). See [pipeline/](pipeline/). Today the candidate is a hosted model; the same flow swaps a vLLM-served version later.
@@ -135,7 +135,7 @@ Built:
 
 Planned:
 - [x] Model pipeline — Argo Workflows eval → gate → promote (rolling update + model registry), verified pass/fail gates on kind
-- [ ] vLLM serving on GPU — FP16-vs-AWQ benchmarks, GPU metrics, GPU-aware HPA
+- [~] vLLM serving on GPU — runbook + Grafana dashboard ready (Part A); live FP16-vs-AWQ benchmarks pending a rented GPU (Part B)
 
 Sequencing note: only vLLM needs a GPU, so the GPU-independent layers are built and validated on the Mac first; vLLM is added last on a rented GPU. Rationale in [docs/architecture-v2-infra.md](docs/architecture-v2-infra.md).
 

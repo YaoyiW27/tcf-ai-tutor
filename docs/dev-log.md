@@ -2,6 +2,11 @@
 
 ## 2026-08-14 (later)
 
+### vLLM capstone — Part A (GPU-free prep, tested)
+- Decisions: self-host **Qwen2.5-7B-Instruct** on vLLM on a **raw GPU box** (user runs Docker, shares URL+key); gateway routes to it via the existing `vllm` forward path (config only, no gateway code). Scope: serving + gateway + **FP16-vs-AWQ** benchmarks + vLLM `/metrics` → Grafana; in-cluster GPU-aware HPA deferred (kind is on the Mac).
+- Landed GPU-free + CI-testable: `docs/vllm-runbook.md` (vLLM launch FP16/AWQ, gateway wiring, structured-output note + `guided_json` fallback, bench + compare procedure); a **vLLM Grafana dashboard** (`infra/observability/grafana/dashboards/vllm.json`: TTFT p50/95/99, e2e latency, gen throughput, KV-cache, running/waiting) + a commented vLLM scrape job in `prometheus.yml`; `gateway/.env.example` vLLM notes. Tests: `test_vllm_dashboard_contract.py` (valid JSON + references the `vllm:*` metrics) — gateway suite 20 passed. Reuses `INFERENCE_MODEL` (Argo slice) + `bench_gateway.py --label` / `compare_results.py`.
+- **Part B (pending a live GPU):** launch vLLM, wire gateway, verify structured output + one grader eval end-to-end, run FP16-vs-AWQ benchmarks, confirm vLLM metrics in Grafana; record numbers. A 7B model's grading quality will trail Claude (expected — may trip the Argo gate).
+
 ### CI — GitHub Actions
 - `.github/workflows/ci.yml` runs on push (main) + PRs: a `tests` matrix job (`gateway`, `backend`) that installs `requirements-dev.txt` and runs `pytest` per service (no DB/services — everything's mocked; backend conftest sets a dummy `DATABASE_URL`), plus an `infra-validate` job (`helm lint`/`template` the chart + `docker compose config`). Operationalizes the tests-as-DoD rule. CI badge in the README.
 
