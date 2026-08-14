@@ -1,0 +1,9 @@
+# Minimal model registry: a JSON array of promotion records, one per promoted
+# model. The pipeline's promote step appends {model, result, promoted_at}.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tcf-model-registry
+  namespace: tcf
+data:
+  registry: "[]"

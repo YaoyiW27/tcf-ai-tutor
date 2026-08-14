@@ -1,0 +1,41 @@
+# ServiceAccount + RBAC for the model-eval pipeline, in the tcf namespace.
+# The workflow's pods need: the Argo executor permission (workflowtaskresults),
+# and — for the promote step — patch the registry ConfigMap + roll the backend.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tcf-pipeline
+  namespace: tcf
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tcf-pipeline
+  namespace: tcf
+rules:
+  # Argo workflow executor writes step results here.
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtaskresults"]
+    verbs: ["create", "patch", "get"]
+  # promote step: update the model registry.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "update", "patch"]
+  # promote step: roll the backend to the promoted model.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tcf-pipeline
+  namespace: tcf
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tcf-pipeline
+subjects:
+  - kind: ServiceAccount
+    name: tcf-pipeline
+    namespace: tcf

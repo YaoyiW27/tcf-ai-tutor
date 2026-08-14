@@ -1,0 +1,19 @@
+# Periodic candidate re-evaluation. SUSPENDED by default so it doesn't run the
+# (real-Claude) eval on a schedule and accrue cost — resume it deliberately:
+#   kubectl -n tcf patch cronworkflow model-eval-nightly --type merge -p '{"spec":{"suspend":false}}'
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: model-eval-nightly
+  namespace: tcf
+spec:
+  schedule: "0 3 * * *"
+  suspend: true
+  concurrencyPolicy: "Forbid"
+  workflowSpec:
+    workflowTemplateRef:
+      name: model-eval-promote
+    arguments:
+      parameters:
+        - name: candidate-model
+          value: claude-sonnet-4-6

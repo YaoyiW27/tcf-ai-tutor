@@ -1,0 +1,83 @@
+# Model eval -> gate -> promote. Evaluate a candidate model with the real
+# writing-grader regression; on pass, record it in the registry and roll the
+# backend to it; on fail, notify and leave production untouched.
+#
+# Submit a run (candidate defaults to the current baseline):
+#   argo submit --from workflowtemplate/model-eval-promote -n tcf \
+#     -p candidate-model=claude-haiku-4-5
+# or without the argo CLI:
+#   kubectl -n tcf create -f - <<'EOF'
+#   apiVersion: argoproj.io/v1alpha1
+#   kind: Workflow
+#   metadata: {generateName: model-eval-}
+#   spec:
+#     workflowTemplateRef: {name: model-eval-promote}
+#     arguments: {parameters: [{name: candidate-model, value: claude-haiku-4-5}]}
+#   EOF
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: model-eval-promote
+  namespace: tcf
+spec:
+  serviceAccountName: tcf-pipeline
+  entrypoint: main
+  arguments:
+    parameters:
+      - name: candidate-model
+        value: claude-sonnet-4-6
+  templates:
+    - name: main
+      dag:
+        tasks:
+          - name: eval
+            template: eval
+          - name: promote
+            template: promote
+            depends: "eval.Succeeded"
+          - name: notify-fail
+            template: notify-fail
+            depends: "eval.Failed"
+
+    # Run the real writing-grader regression against the candidate model
+    # (through the in-cluster gateway). Non-zero exit = gate fail.
+    - name: eval
+      container:
+        image: tcf-backend:dev
+        imagePullPolicy: IfNotPresent
+        command: ["python", "-m", "scripts.eval_grader"]
+        envFrom:
+          - secretRef:
+              name: tcf-secrets       # DATABASE_URL (required at import), etc.
+        env:
+          - name: GATEWAY_URL
+            value: http://tcf-gateway:8001
+          - name: INFERENCE_MODEL
+            value: "{{workflow.parameters.candidate-model}}"
+
+    # Passed the gate: append to the registry and roll the backend to the model.
+    - name: promote
+      container:
+        image: alpine/k8s:1.30.0
+        command: ["sh", "-c"]
+        args:
+          - |
+            set -e
+            CAND="{{workflow.parameters.candidate-model}}"
+            NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            echo "promoting $CAND"
+            NEW=$(kubectl -n tcf get configmap tcf-model-registry -o jsonpath='{.data.registry}' \
+              | jq -c --arg m "$CAND" --arg t "$NOW" \
+                  '. + [{"model":$m,"result":"pass","promoted_at":$t}]')
+            kubectl -n tcf create configmap tcf-model-registry \
+              --from-literal=registry="$NEW" --dry-run=client -o yaml | kubectl apply -f -
+            kubectl -n tcf set env deployment/tcf-backend INFERENCE_MODEL="$CAND"
+            echo "registry now: $NEW"
+
+    # Failed the gate: notify, leave production untouched.
+    - name: notify-fail
+      container:
+        image: busybox:1.36
+        command: ["sh", "-c"]
+        args:
+          - 'echo "eval FAILED for {{workflow.parameters.candidate-model}} — not promoting"'
