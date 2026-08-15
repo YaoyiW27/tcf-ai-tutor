@@ -33,6 +33,13 @@ def metrics_endpoint() -> Response:
 async def chat_completions(request: Request) -> Response:
     key = request.headers.get("authorization", "anon")
     if not ratelimit.allow(key):
+        # Count throttled requests too. Returning 429 without recording it makes
+        # rate limiting invisible on the dashboard — "the limiter is shedding
+        # load" and "traffic stopped" look identical, which is exactly when the
+        # difference matters. The model label is "unknown" because we reject
+        # before parsing the body, which is the point: do no work for a request
+        # that is already over its limit.
+        metrics.REQUESTS.labels(settings.inference_backend, "unknown", "429").inc()
         return JSONResponse(
             status_code=429,
             content={"error": {"message": "rate limit exceeded", "type": "rate_limit_error"}},
