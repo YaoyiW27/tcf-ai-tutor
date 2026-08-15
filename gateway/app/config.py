@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # per-key token-bucket rate limiting
     rate_limit_per_min: float = 120.0
     rate_limit_burst: int = 20
+    # Ceiling on tracked keys. The bucket map is keyed on the caller's raw
+    # Authorization header, so it needs a bound — see the eviction note in
+    # app.ratelimit for what is traded away when it is hit.
+    rate_limit_max_keys: int = 10_000
 
 
 settings = Settings()
