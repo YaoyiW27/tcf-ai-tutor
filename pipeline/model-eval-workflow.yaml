@@ -26,6 +26,18 @@ spec:
     parameters:
       - name: candidate-model
         value: claude-sonnet-4-6
+      # The eval calls a non-deterministic model, so a single run is a coin flip:
+      # the same candidate can pass once and fail the next time for reasons that
+      # have nothing to do with its quality. Gate on a majority of repeats
+      # instead, and set the two numbers explicitly so the tolerance is a stated
+      # policy rather than an accident of sampling.
+      - name: eval-runs
+        value: "3"
+      - name: eval-required
+        value: "2"
+      # Optional webhook for gate failures. Empty = log only.
+      - name: notify-webhook
+        value: ""
   templates:
     - name: main
       dag:
@@ -35,17 +47,32 @@ spec:
           - name: promote
             template: promote
             depends: "eval.Succeeded"
-          - name: notify-fail
-            template: notify-fail
+          - name: report-failure
+            template: report-failure
             depends: "eval.Failed"
 
     # Run the real writing-grader regression against the candidate model
-    # (through the in-cluster gateway). Non-zero exit = gate fail.
+    # (through the in-cluster gateway) eval-runs times; the gate passes only if
+    # at least eval-required of them pass. Non-zero exit = gate fail.
     - name: eval
       container:
         image: tcf-backend:dev
         imagePullPolicy: IfNotPresent
-        command: ["python", "-m", "scripts.eval_grader"]
+        command: ["sh", "-c"]
+        args:
+          - |
+            set -u
+            passed=0
+            for i in $(seq 1 "$EVAL_RUNS"); do
+              if python -m scripts.eval_grader; then
+                passed=$((passed + 1))
+                echo "run $i/$EVAL_RUNS: PASS (passed=$passed)"
+              else
+                echo "run $i/$EVAL_RUNS: FAIL (passed=$passed)"
+              fi
+            done
+            echo "gate: $passed/$EVAL_RUNS passed, need $EVAL_REQUIRED"
+            [ "$passed" -ge "$EVAL_REQUIRED" ]
         envFrom:
           - secretRef:
               name: tcf-secrets       # DATABASE_URL (required at import), etc.
@@ -54,6 +81,10 @@ spec:
             value: http://tcf-gateway:8001
           - name: INFERENCE_MODEL
             value: "{{workflow.parameters.candidate-model}}"
+          - name: EVAL_RUNS
+            value: "{{workflow.parameters.eval-runs}}"
+          - name: EVAL_REQUIRED
+            value: "{{workflow.parameters.eval-required}}"
 
     # Passed the gate: append to the registry and roll the backend to the model.
     - name: promote
@@ -74,10 +105,22 @@ spec:
             kubectl -n tcf set env deployment/tcf-backend INFERENCE_MODEL="$CAND"
             echo "registry now: $NEW"
 
-    # Failed the gate: notify, leave production untouched.
-    - name: notify-fail
+    # Failed the gate: report, leave production untouched. Named "report" rather
+    # than "notify" because with no webhook configured this only writes to the
+    # workflow log — nothing reaches a human until notify-webhook is set.
+    - name: report-failure
       container:
-        image: busybox:1.36
+        image: curlimages/curl:8.11.1
         command: ["sh", "-c"]
         args:
-          - 'echo "eval FAILED for {{workflow.parameters.candidate-model}} — not promoting"'
+          - |
+            set -u
+            MSG="model-eval gate FAILED for {{workflow.parameters.candidate-model}} — not promoting"
+            echo "$MSG"
+            if [ -n "{{workflow.parameters.notify-webhook}}" ]; then
+              curl -sS -X POST -H 'Content-Type: application/json' \
+                -d "{\"text\":\"$MSG\"}" "{{workflow.parameters.notify-webhook}}" \
+                && echo "notified"
+            else
+              echo "no notify-webhook configured — logged only"
+            fi

@@ -47,11 +47,29 @@ kubectl -n tcf logs -l workflows.argoproj.io/workflow=<name> --all-containers
   kubectl -n tcf get configmap tcf-model-registry -o jsonpath='{.data.registry}'
   kubectl -n tcf get deploy tcf-backend -o jsonpath='{..containers[?(@.name=="backend")].env}'
   ```
-- **Fail** (e.g. `candidate-model=not-a-real-model` → the model call errors) → `notify-fail`
+- **Fail** (e.g. `candidate-model=not-a-real-model` → the model call errors) → `report-failure`
   runs, `promote` is skipped, and production is untouched.
 
+## The gate is best-of-N, not a single run
+The eval calls a non-deterministic model, so one run is a coin flip — the same candidate can pass
+once and fail the next time for reasons that have nothing to do with its quality. The `eval` step
+runs `eval-runs` times (default 3) and passes only if at least `eval-required` (default 2) succeed,
+so the tolerance is a stated policy rather than an accident of sampling:
+
+```bash
+argo submit --from workflowtemplate/model-eval-promote -n tcf \
+  -p candidate-model=claude-haiku-4-5 -p eval-runs=5 -p eval-required=4
+```
+
+`report-failure` is named for what it does: with `notify-webhook` empty (the default) it writes to
+the workflow log and nothing else — nothing reaches a human until you pass one:
+
+```bash
+  -p notify-webhook=https://hooks.example.com/...
+```
+
 ## Notes
-- The eval makes real Claude calls (a few cents/run). The CronWorkflow stays **suspended** so it
-  doesn't run on a schedule; resume it deliberately.
+- The eval makes real Claude calls (a few cents per run, now ×`eval-runs`). The CronWorkflow stays
+  **suspended** so it doesn't run on a schedule; resume it deliberately.
 - RBAC (`rbac.yaml`): the workflow ServiceAccount needs `workflowtaskresults` (Argo executor) plus
   `configmaps`/`deployments` patch for the promote step.
