@@ -43,6 +43,18 @@ def _reject_response_format(request: Request) -> bool:
     return os.environ.get("MOCK_REJECT_RESPONSE_FORMAT", "").lower() in {"1", "true", "yes"}
 
 
+def _reject_context_length(request: Request) -> bool:
+    """Whether to 400 for a reason unrelated to `response_format` (context length).
+
+    Mirrors the real vLLM error when `prompt + max_completion_tokens > --max-model-len`.
+    Enabled via env MOCK_REJECT_CONTEXT_LENGTH or ?reject_context_length=1. Lets tests
+    assert the gateway does NOT retry such a 400 with guided_json.
+    """
+    if request.query_params.get("reject_context_length", "").lower() in {"1", "true", "yes"}:
+        return True
+    return os.environ.get("MOCK_REJECT_CONTEXT_LENGTH", "").lower() in {"1", "true", "yes"}
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -60,6 +72,19 @@ async def chat_completions(request: Request) -> JSONResponse:
         return JSONResponse(
             status_code=400,
             content={"error": {"message": "response_format not supported", "type": "invalid_request_error"}},
+        )
+
+    # Simulate a 400 unrelated to response_format (context-length overflow). The
+    # gateway must NOT retry this with guided_json — the message never names the field.
+    if _reject_context_length(request):
+        return JSONResponse(
+            status_code=400,
+            content={"error": {
+                "message": "This model's maximum context length is 8192 tokens. However, "
+                "you requested 8000 output tokens and your prompt contains 193 input tokens.",
+                "type": "BadRequestError",
+                "param": "input_tokens",
+            }},
         )
 
     delay_ms = float(request.query_params.get("delay_ms", DEFAULT_DELAY_MS))

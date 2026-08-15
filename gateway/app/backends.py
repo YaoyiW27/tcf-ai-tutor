@@ -134,21 +134,72 @@ def _to_guided_json(body: dict) -> dict:
     return out
 
 
+def _is_response_format_error(resp: httpx.Response) -> bool:
+    """Whether a 400 specifically means the upstream can't handle ``response_format``.
+
+    A json_schema request can 400 for unrelated reasons — a context-length overflow
+    (``prompt + max_completion_tokens > --max-model-len``), a malformed schema, etc.
+    Retrying *those* with ``guided_json`` wastes a second (metered) round trip and
+    then surfaces the retry's error, masking the real cause. Only the "field not
+    supported" case should fall back, so we key on the upstream naming the field.
+
+    Known limitation: this is a substring match on the upstream's error prose, so
+    it is coupled to that wording. An upstream that echoed the request body back
+    in its 400 detail would trip it (the body contains ``response_format``).
+    vLLM does not — its context-length error names only the token counts — but a
+    structured error code would be sturdier than string matching.
+    """
+    if resp.status_code != 400:
+        return False
+    return "response_format" in resp.text.lower()
+
+
+# Per-upstream memo: has this base_url been observed to reject ``response_format``?
+# Set on the first probe so an older vLLM costs a probe rather than a retry on
+# every request. Two boundaries worth naming:
+#
+# 1. The verdict is never invalidated. If the same URL is later upgraded to a
+#    vLLM that has dropped the deprecated ``guided_json``, this keeps sending it
+#    and the resulting 400 names ``guided_json`` — not ``response_format`` — so
+#    no retry fires and the process cannot recover without a restart. A TTL, or
+#    clearing the memo when a guided_json request itself 400s, would close that.
+# 2. "One probe" holds per process, per URL, and only under serial load: requests
+#    that arrive before the first probe resolves each probe independently, so a
+#    burst of N concurrent calls against an old upstream costs up to N probes.
+#    Same shape as the per-process rate limiter in ``app.ratelimit`` — correct for
+#    one replica, and a shared store is what changes it.
+_rejects_response_format: dict[str, bool] = {}
+
+
 async def _forward_backend(body: dict) -> tuple[dict, int, int, float]:
     if not settings.upstream_base_url:
         raise RuntimeError("UPSTREAM_BASE_URL is not set")
+    base = settings.upstream_base_url.rstrip("/")
     headers = {"Authorization": f"Bearer {settings.upstream_api_key or ''}"}
-    url = f"{settings.upstream_base_url.rstrip('/')}/chat/completions"
+    url = f"{base}/chat/completions"
+
+    has_schema = _has_json_schema(body)
+    # If this upstream is already known to reject response_format, translate up
+    # front — one round trip, no wasted probe.
+    known_reject = _rejects_response_format.get(base)
+    send_body = _to_guided_json(body) if (has_schema and known_reject) else body
+
     async with httpx.AsyncClient(timeout=120) as client:
         upstream_start = time.perf_counter()
-        resp = await client.post(url, json=body, headers=headers)
-        # Fallback: an upstream that rejects response_format (older vLLM) gets one
-        # retry with the deprecated top-level guided_json param.
-        if resp.status_code == 400 and _has_json_schema(body):
+        resp = await client.post(url, json=send_body, headers=headers)
+        upstream_seconds = time.perf_counter() - upstream_start
+        # Fallback: retry with guided_json ONLY when the 400 says response_format is
+        # unsupported (not a context-length / bad-schema 400). Remember the verdict so
+        # subsequent requests skip the native attempt. upstream_seconds is re-timed on
+        # the retry so it reflects the returned call, not the probe + retry sum (which
+        # would understate gateway_overhead_seconds).
+        if has_schema and not known_reject and _is_response_format_error(resp):
+            _rejects_response_format[base] = True
+            upstream_start = time.perf_counter()
             resp = await client.post(url, json=_to_guided_json(body), headers=headers)
+            upstream_seconds = time.perf_counter() - upstream_start
         resp.raise_for_status()
         data = resp.json()
-        upstream_seconds = time.perf_counter() - upstream_start
     usage = data.get("usage") or {}
     return (
         data,

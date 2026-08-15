@@ -49,6 +49,7 @@ def upstream_is_mock(monkeypatch):
 
     monkeypatch.setattr(backends.httpx, "AsyncClient", make_client)
     mock_upstream.last_request = {}
+    backends._rejects_response_format.clear()  # per-upstream memo must not leak across tests
 
 
 async def test_forward_backend_retries_with_guided_json_when_response_format_rejected(
@@ -72,3 +73,39 @@ async def test_forward_backend_no_retry_when_upstream_accepts_response_format(
     # No fallback: response_format kept, guided_json never added.
     assert "response_format" in mock_upstream.last_request
     assert "guided_json" not in mock_upstream.last_request
+
+
+async def test_forward_backend_no_retry_on_unrelated_400(upstream_is_mock, monkeypatch):
+    """A 400 that isn't about response_format (e.g. context-length) must not fall back.
+
+    Regression: the old code retried any 400 carrying a json_schema, so a
+    context-length 400 was sent twice (double GPU spend on a metered box) and
+    surfaced the retry's error, masking the real cause.
+    """
+    monkeypatch.setenv("MOCK_REJECT_CONTEXT_LENGTH", "1")
+    with pytest.raises(httpx.HTTPStatusError) as exc:
+        await backends._forward_backend(dict(_SCHEMA_BODY))
+    assert exc.value.response.status_code == 400
+    # The upstream saw the original response_format body and was NOT retried with guided_json.
+    assert "response_format" in mock_upstream.last_request
+    assert "guided_json" not in mock_upstream.last_request
+    # The context-length 400 is not a capability signal, so nothing is memoized.
+    assert backends._rejects_response_format == {}
+
+
+async def test_forward_backend_memoizes_reject_so_it_probes_once(
+    upstream_is_mock, monkeypatch
+):
+    """After one probe, a rejecting upstream is sent guided_json up front (no re-probe)."""
+    monkeypatch.setenv("MOCK_REJECT_RESPONSE_FORMAT", "1")
+    await backends._forward_backend(dict(_SCHEMA_BODY))  # first call probes, learns reject
+    assert backends._rejects_response_format.get("http://mock/v1") is True
+
+    # Second call: the mock records the body it received first. If the gateway sent
+    # response_format again it would 400 (reject mode) then retry; instead it should
+    # send guided_json directly, so the mock never sees response_format.
+    mock_upstream.last_request = {}
+    data, _in, _out, _sec = await backends._forward_backend(dict(_SCHEMA_BODY))
+    assert data["choices"][0]["message"]["content"]
+    assert mock_upstream.last_request.get("guided_json") is not None
+    assert "response_format" not in mock_upstream.last_request
