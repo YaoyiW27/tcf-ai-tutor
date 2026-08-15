@@ -1,5 +1,30 @@
 # Dev Log
 
+## 2026-08-14 (Part B follow-up — fallback correctness + doc accuracy)
+
+Two accuracy fixes after reviewing Part B (no new features):
+- **Gateway `guided_json` fallback was too eager.** `_forward_backend` retried on *any* 400 carrying a
+  json_schema, not only a "response_format unsupported" 400. During the live run, before
+  `--max-model-len` was raised, every grader call 400'd on context length — and every one carried a
+  json_schema, so each was silently sent **twice** (double spend on a metered GPU), and
+  `raise_for_status()` surfaced the *second* (guided_json-rewritten) response, masking the real
+  max-model-len cause. Fix: retry only when the 400 body names `response_format`
+  (`_is_response_format_error`); memoize the verdict per upstream (`_rejects_response_format`) so a
+  genuinely-old vLLM costs **one probe**, not a retry per request. `upstream_seconds` is now re-timed on
+  the retry (the returned call), not the probe+retry sum — the old sum inflated upstream time and
+  understated `gateway_overhead_seconds` (the signature A/B metric). Tests (`test_forward_fallback.py`,
+  now 4): a non-`response_format` 400 must **not** retry (+ nothing memoized), and the reject verdict is
+  cached so it probes once. Extended `mock_upstream.py` with a context-length reject mode. Gateway suite
+  **24 passed**.
+- **Runbook §5 / dev-log claims tightened to match what was actually measured:** corrected "the
+  `guided_json` fallback never fired" (it did, on every max-model-len 400); named the eval model
+  (**FP16**, before the AWQ redeploy) and framed `eval_grader 3/3` as a *pipeline* check (3 assertions
+  vs a non-deterministic model), not a grading-quality result; **the FP16-vs-AWQ quality delta was not
+  measured** (AWQ eval skipped to spin the GPU down) — recorded as performance-only; added scope notes
+  that `max_completion_tokens=256` but the model emitted ~28–42 tokens (measures TTFT + short decode,
+  not sustained generation) and that n=100 single-run p95/p99 rest on ~5/~1 samples (indicative, not
+  stable tails).
+
 ## 2026-08-14 (Part B — live vLLM on a rented GPU)
 
 ### vLLM capstone — Part B (live validation, GPU up then down)
@@ -17,10 +42,13 @@
   Qwen supports 32768) over shrinking the workload cap — keeps Claude the quality backend and the
   workload identical across backends. Fixed the runbook (`8192 → 16384` + a note on why).
 - **Structured output:** this vLLM (0.27.1) accepts OpenAI **`response_format` json_schema natively**
-  (200) — the gateway's `guided_json` fallback never fired. **`eval_grader` 3/3 passed end-to-end** on
-  the self-hosted 7B through the gateway (polite imparfait not flagged, agreement error caught, weak
-  answer not over-scored); grading quality trails Claude as expected (verify_errors dropped a real
-  `des pomme`/gender error on one probe).
+  (200). The `guided_json` fallback didn't fire on the successful runs — but the earlier
+  `--max-model-len 8192` 400s each *did* trip it, because the then-current gateway retried on any
+  json_schema 400 (fixed the next day — see the follow-up entry). **`eval_grader` 3/3 passed
+  end-to-end against the FP16 model** through the gateway (eval ran before the AWQ redeploy; polite
+  imparfait not flagged, agreement error caught, weak answer not over-scored). This is a *pipeline*
+  check, not a quality measure — grading quality trails Claude as expected (verify_errors dropped a
+  real `des pomme`/gender error on one probe).
 - **FP16-vs-AWQ benchmark** (n=100 × concurrency 1,4,8,16, e2e via the RunPod proxy): **AWQ-4bit is a
   straight win — +15–29% QPS, −10–22% p50/p95, +20–28% tok/s, 0 errors** at every level. vLLM
   continuous batching shows as **QPS scaling ~linearly 1→16 with ~flat p50**. Saved

@@ -88,10 +88,23 @@ Add a scrape job for the vLLM `/metrics` target (see the commented block in
 ### Live run — 2026-08-14 (RunPod, Qwen2.5-7B-Instruct, vLLM 0.27.1, `--max-model-len 16384`)
 
 **Setup:** vLLM on a RunPod pod (public HTTPS proxy) → gateway (`INFERENCE_BACKEND=vllm`) on the
-Mac → benchmark. Structured output used vLLM's **native `response_format` json_schema** (200; the
-`guided_json` fallback never fired). Grader regression **`eval_grader` 3/3 passed** end-to-end on the
-self-hosted model. Client bench = e2e (Mac → RunPod → GPU), fixed prompt, `max_completion_tokens=256`
-(model stopped at ~28–42 tokens), n=100/level, limiter raised.
+Mac → benchmark. Structured output used vLLM's **native `response_format` json_schema** (200 on the
+benchmark + eval runs). The `guided_json` fallback did *not* fire on those successful runs — but note
+that the earlier `--max-model-len 8192` 400s (§1) **did** each trip the fallback, because the
+then-current gateway retried on *any* json_schema 400. That was a bug: a context-length 400 is not a
+"response_format unsupported" signal, so retrying it double-charged the metered GPU and surfaced the
+retry's error instead of the real cause. The gateway now retries only when the 400 body names
+`response_format`, and memoizes the verdict per upstream (see `backends._forward_backend`).
+
+**Grader eval:** `eval_grader` **3/3 passed end-to-end against the FP16 model** (the eval ran while the
+FP16 pod was up, before the AWQ redeploy). This is a *pipeline* check — 3 hand-written assertions against
+a non-deterministic model confirm the self-hosted path produces valid structured grades and doesn't
+regress on three specific cases; it is **not** a measure of grading quality or adequacy.
+
+Client bench = e2e (Mac → RunPod → GPU), fixed prompt, `max_completion_tokens=256` but the model
+**emitted only ~28–42 tokens** (short French answer, `finish_reason=stop`), so these numbers measure
+**TTFT + a short decode, not sustained generation** — the FP16-vs-AWQ gap may differ on long outputs.
+n=100/level, single run, limiter raised.
 
 **FP16 vs AWQ-4bit** (`benchmarks/results/vllm-fp16-*.json`, `vllm-awq-*.json`):
 
@@ -108,12 +121,18 @@ p50≈1.0s ≈ the client p50, so **the RunPod proxy adds negligible network ove
 single-stream decode (~38 tok/s), not RTT. Prometheus scraped the vLLM target live (`scheme: https`,
 `/metrics`, unauthenticated); the **vLLM Serving** Grafana dashboard rendered TTFT/throughput from it.
 
-**Observations:** (1) AWQ is a straight win here — **+15–29% QPS and −10–22% latency** at every
-concurrency, 0 errors, for a small quality cost (expected). (2) vLLM continuous batching: **QPS scales
-~linearly 1→16 while p50 stays ~flat** — throughput grows at near-constant per-request latency.
-(3) FP16's serving-side TTFT was not captured live (its pod was destroyed on the AWQ redeploy); the
-client-side FP16-vs-AWQ delta above is the relative record. (4) `--max-model-len` **must exceed the
+**Observations:** (1) On these short-decode requests AWQ is a straight win — **+15–29% QPS and
+−10–22% p50/p95 latency** at every concurrency, 0 errors. The **quality delta was not measured**:
+`eval_grader` was only run against FP16 (the AWQ eval was skipped to spin the GPU down), so this
+records AWQ's *performance* advantage, not its accuracy relative to FP16. (2) vLLM continuous batching:
+**QPS scales ~linearly 1→16 while p50 stays ~flat** — throughput grows at near-constant per-request
+latency. (3) FP16's serving-side TTFT was not captured live (its pod was destroyed on the AWQ redeploy);
+the client-side FP16-vs-AWQ delta above is the relative record. (4) `--max-model-len` **must exceed the
 grader's 8000-token completion cap** or every call 400s (§1) — this was the one live blocker.
+
+> **Precision caveat:** each cell is a **single run of n=100**, so p95/p99 rest on ~5 / ~1 samples
+> respectively — treat p99 as indicative, not a stable quantile, and don't over-read the last digits.
+> The QPS and p50 numbers are the trustworthy ones; re-run with larger n for publishable tail latencies.
 
 Then **spin down the GPU.**
 
