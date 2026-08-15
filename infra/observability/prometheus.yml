@@ -20,5 +20,6 @@ scrape_configs:
   # docs/vllm-runbook.md. vLLM's /metrics is unauthenticated by default.
   # - job_name: vllm
   #   metrics_path: /metrics
+  #   scheme: https                                    # RunPod public proxy (443); omit for a host:port target
   #   static_configs:
-  #     - targets: ["host.docker.internal:8000"]   # or the public vLLM host:port
+  #     - targets: ["host.docker.internal:8000"]       # or the public vLLM host (e.g. <id>-8000.proxy.runpod.net)

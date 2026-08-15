@@ -1,0 +1,79 @@
+{
+  "label": "vllm-fp16",
+  "config": {
+    "url": "http://localhost:8001/v1",
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "n_per_level": 100,
+    "concurrency_levels": [
+      1,
+      4,
+      8,
+      16
+    ],
+    "max_tokens": 256
+  },
+  "environment": {
+    "python": "3.11.3",
+    "platform": "macOS-14.4.1-arm64-arm-64bit",
+    "cpu_count": 8
+  },
+  "peak_rss_mb": null,
+  "per_concurrency": [
+    {
+      "concurrency": 1,
+      "requests_ok": 100,
+      "requests_failed": 0,
+      "wall_seconds": 127.869,
+      "qps": 0.78,
+      "latency_seconds": {
+        "p50": 1.2507,
+        "p95": 1.6073,
+        "p99": 1.6834,
+        "mean": 1.2785
+      },
+      "output_tokens_per_sec": 29.8
+    },
+    {
+      "concurrency": 4,
+      "requests_ok": 100,
+      "requests_failed": 0,
+      "wall_seconds": 34.957,
+      "qps": 2.86,
+      "latency_seconds": {
+        "p50": 1.3581,
+        "p95": 1.6115,
+        "p99": 1.6753,
+        "mean": 1.3637
+      },
+      "output_tokens_per_sec": 112.5
+    },
+    {
+      "concurrency": 8,
+      "requests_ok": 100,
+      "requests_failed": 0,
+      "wall_seconds": 17.285,
+      "qps": 5.79,
+      "latency_seconds": {
+        "p50": 1.3107,
+        "p95": 1.6235,
+        "p99": 1.7024,
+        "mean": 1.3378
+      },
+      "output_tokens_per_sec": 221.3
+    },
+    {
+      "concurrency": 16,
+      "requests_ok": 100,
+      "requests_failed": 0,
+      "wall_seconds": 9.302,
+      "qps": 10.75,
+      "latency_seconds": {
+        "p50": 1.3183,
+        "p95": 1.6471,
+        "p99": 1.7463,
+        "mean": 1.351
+      },
+      "output_tokens_per_sec": 405.6
+    }
+  ]
+}

@@ -17,15 +17,22 @@ docker run --gpus all -p 8000:8000 \
   vllm/vllm-openai:latest \
   --model Qwen/Qwen2.5-7B-Instruct \
   --api-key "$VLLM_KEY" \
-  --max-model-len 8192
+  --max-model-len 16384
 ```
 
 **AWQ-4bit** (same command, different checkpoint + quantization):
 ```bash
 docker run --gpus all -p 8000:8000 vllm/vllm-openai:latest \
   --model Qwen/Qwen2.5-7B-Instruct-AWQ --quantization awq \
-  --api-key "$VLLM_KEY" --max-model-len 8192
+  --api-key "$VLLM_KEY" --max-model-len 16384
 ```
+
+> **`--max-model-len` must clear the workload's completion cap.** The grader's
+> `_structured_call` caps completions at `max_tokens=8000` (tuned for Claude's 200k
+> window; the workload stays backend-agnostic). vLLM counts prompt + `max_completion_tokens`
+> against `--max-model-len`, so an 8192 window 400s every grader call
+> (`8000 + prompt > 8192`). `16384` clears it with headroom (Qwen2.5-7B supports 32768);
+> keep the **same value for FP16 and AWQ** so the benchmark is apples-to-apples.
 
 Reach it from the Mac with an SSH tunnel (keeps the key off the public internet and out of chat):
 `ssh -L 8000:localhost:8000 <box>` → the endpoint is `http://localhost:8000`. vLLM serves
@@ -77,7 +84,38 @@ Add a scrape job for the vLLM `/metrics` target (see the commented block in
 (`vllm:time_to_first_token_seconds`), generation throughput, KV-cache usage, and running/waiting requests.
 
 ## 5. Record results
-Save the FP16-vs-AWQ table + observations here and in `docs/dev-log.md`. Then **spin down the GPU**.
+
+### Live run — 2026-08-14 (RunPod, Qwen2.5-7B-Instruct, vLLM 0.27.1, `--max-model-len 16384`)
+
+**Setup:** vLLM on a RunPod pod (public HTTPS proxy) → gateway (`INFERENCE_BACKEND=vllm`) on the
+Mac → benchmark. Structured output used vLLM's **native `response_format` json_schema** (200; the
+`guided_json` fallback never fired). Grader regression **`eval_grader` 3/3 passed** end-to-end on the
+self-hosted model. Client bench = e2e (Mac → RunPod → GPU), fixed prompt, `max_completion_tokens=256`
+(model stopped at ~28–42 tokens), n=100/level, limiter raised.
+
+**FP16 vs AWQ-4bit** (`benchmarks/results/vllm-fp16-*.json`, `vllm-awq-*.json`):
+
+| concurrency | QPS (fp16→awq) | p50 s (fp16→awq) | p95 s | p99 s | out tok/s (fp16→awq) |
+|---|---|---|---|---|---|
+| 1  | 0.78 → 0.98  (+26%) | 1.25 → 1.01 (−19%) | 1.61 → 1.28 | 1.68 → 1.43 | 29.8 → 38.0  (+28%) |
+| 4  | 2.86 → 3.68  (+29%) | 1.36 → 1.06 (−22%) | 1.61 → 1.33 | 1.68 → 1.64 | 112.5 → 144.0 (+28%) |
+| 8  | 5.79 → 7.30  (+26%) | 1.31 → 1.06 (−19%) | 1.62 → 1.31 | 1.70 → 1.44 | 221.3 → 275.0 (+24%) |
+| 16 | 10.75 → 12.36 (+15%) | 1.32 → 1.17 (−12%) | 1.65 → 1.45 | 1.75 → 1.56 | 405.6 → 487.5 (+20%) |
+
+**Authoritative serving-side metrics** (from vLLM `/metrics`, AWQ pod, network excluded):
+TTFT **p50=0.06s / p95=0.08s / p99=0.10s** (`vllm:time_to_first_token_seconds`); serving e2e
+p50≈1.0s ≈ the client p50, so **the RunPod proxy adds negligible network overhead** — the ~1s is real
+single-stream decode (~38 tok/s), not RTT. Prometheus scraped the vLLM target live (`scheme: https`,
+`/metrics`, unauthenticated); the **vLLM Serving** Grafana dashboard rendered TTFT/throughput from it.
+
+**Observations:** (1) AWQ is a straight win here — **+15–29% QPS and −10–22% latency** at every
+concurrency, 0 errors, for a small quality cost (expected). (2) vLLM continuous batching: **QPS scales
+~linearly 1→16 while p50 stays ~flat** — throughput grows at near-constant per-request latency.
+(3) FP16's serving-side TTFT was not captured live (its pod was destroyed on the AWQ redeploy); the
+client-side FP16-vs-AWQ delta above is the relative record. (4) `--max-model-len` **must exceed the
+grader's 8000-token completion cap** or every call 400s (§1) — this was the one live blocker.
+
+Then **spin down the GPU.**
 
 ## Deferred
 In-cluster GPU-aware HPA (our kind cluster runs on the Mac, not the GPU) — a future slice would run

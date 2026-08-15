@@ -1,5 +1,41 @@
 # Dev Log
 
+## 2026-08-14 (Part B — live vLLM on a rented GPU)
+
+### vLLM capstone — Part B (live validation, GPU up then down)
+- Rented a **RunPod** GPU running the **vLLM OpenAI template** (not raw Docker) serving
+  `Qwen/Qwen2.5-7B-Instruct`, reachable via a public HTTPS proxy. Gateway wired via gitignored
+  `gateway/.env` (`INFERENCE_BACKEND=vllm` + `UPSTREAM_BASE_URL`/`UPSTREAM_API_KEY`); confirmed the
+  three gateway var names against `config.py` (`INFERENCE_MODEL` there is inert — it's a **backend**
+  setting; the bench passes `--model` and the grader eval takes it as an env override).
+- **Live blocker found + fixed (config, not code):** the grader's `_structured_call` caps completions
+  at `max_tokens=8000` (tuned for Claude's 200k window; workload stays backend-agnostic), but vLLM
+  counts `prompt + max_completion_tokens` against `--max-model-len`, so the runbook's **`8192` window
+  400'd every grader call** (`8000 + prompt > 8192`). Root-caused by adding a temp upstream-body log to
+  `_forward_backend` (reverted) — the 400 was a context-length error, not schema/`reasoning_effort`
+  (both verified fine directly). Chose to **raise the window** (redeploy at `--max-model-len 16384`,
+  Qwen supports 32768) over shrinking the workload cap — keeps Claude the quality backend and the
+  workload identical across backends. Fixed the runbook (`8192 → 16384` + a note on why).
+- **Structured output:** this vLLM (0.27.1) accepts OpenAI **`response_format` json_schema natively**
+  (200) — the gateway's `guided_json` fallback never fired. **`eval_grader` 3/3 passed end-to-end** on
+  the self-hosted 7B through the gateway (polite imparfait not flagged, agreement error caught, weak
+  answer not over-scored); grading quality trails Claude as expected (verify_errors dropped a real
+  `des pomme`/gender error on one probe).
+- **FP16-vs-AWQ benchmark** (n=100 × concurrency 1,4,8,16, e2e via the RunPod proxy): **AWQ-4bit is a
+  straight win — +15–29% QPS, −10–22% p50/p95, +20–28% tok/s, 0 errors** at every level. vLLM
+  continuous batching shows as **QPS scaling ~linearly 1→16 with ~flat p50**. Saved
+  `benchmarks/results/vllm-{fp16,awq}-*.json`; `compare_results.py` for the table.
+- **Authoritative serving metrics** from vLLM `/metrics`: TTFT **p50=0.06 / p95=0.08 / p99=0.10s**
+  (`vllm:time_to_first_token_seconds`); serving e2e p50≈1.0s ≈ client p50, so **the RunPod proxy adds
+  negligible RTT** — the ~1s is real single-stream decode (~38 tok/s), not network. Stood up the
+  observability stack pointed at the RunPod `/metrics` (`scheme: https`, unauthenticated): Prometheus
+  target **up**, dashboard PromQL (`histogram_quantile` over the TTFT buckets) resolved live under a
+  warm-up burst, **vLLM Serving** Grafana dashboard rendered. Torn down; reverted the temp
+  `prometheus.yml` target (kept the commented template, improved with an https/RunPod hint) so nothing
+  ephemeral is committed. Full FP16-vs-AWQ table + observations in `docs/vllm-runbook.md §5`.
+- **The GPU-dependent layer is now validated live; GPU to be spun down.** With this, the whole stack
+  (gateway → observability → containers → K8s+autoscaling → Argo → vLLM serving) has run end-to-end.
+
 ## 2026-08-14 (later)
 
 ### vLLM capstone — Part A (GPU-free prep, tested)

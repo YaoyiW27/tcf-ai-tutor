@@ -16,7 +16,7 @@ Application — TCF tutor (FastAPI + LangGraph graders + Next.js UI)   built
 Inference gateway (routing · token/cost accounting ·                 built
   rate limiting · /metrics)
         │
-Model serving — vLLM, OpenAI-compatible                              in progress
+Model serving — vLLM, OpenAI-compatible                              built (rented GPU)
   (continuous batching · KV cache · AWQ/GPTQ)
         │
 Observability — Prometheus + Grafana                                 built (gateway)
@@ -30,7 +30,7 @@ Model pipeline — Argo Workflows · model registry                     built
 ## Components
 
 - **Inference gateway** *(built)* — a standalone OpenAI-compatible service (`gateway/`). The app calls it instead of an LLM SDK directly; it routes to the selected backend (`INFERENCE_BACKEND=anthropic|openai|vllm`), counts tokens, rate-limits per key, records latency/cost, and exposes Prometheus metrics at `/metrics`. Text grading + the examiner run through it today with the anthropic backend.
-- **Model serving** *(in progress)* — vLLM serving Qwen2.5-7B-Instruct over an OpenAI-compatible API (continuous batching, AWQ/GPTQ), on a rented GPU, behind the gateway's `vllm` backend. Runbook + Grafana dashboard ready ([docs/vllm-runbook.md](docs/vllm-runbook.md)); live FP16-vs-AWQ benchmarks pending the GPU.
+- **Model serving** *(built)* — vLLM serving Qwen2.5-7B-Instruct over an OpenAI-compatible API (continuous batching, AWQ/GPTQ) on a rented GPU, behind the gateway's `vllm` backend. Live-validated: grader runs end-to-end on the self-hosted 7B (structured output intact, `eval_grader` 3/3), and **AWQ-4bit benchmarked +15–29% QPS / −10–22% latency vs FP16**; serving TTFT p50≈0.06s from vLLM's own metrics into Grafana. Runbook + results: [docs/vllm-runbook.md](docs/vllm-runbook.md).
 - **Observability** *(built for the gateway)* — Prometheus scrapes the gateway (`infra/observability/`); a Grafana dashboard shows QPS, error rate, latency p50/95/99, gateway overhead, tokens/sec, and cost, faceted by an `impl` label for A/B comparison. GPU/VRAM/KV-cache panels come with vLLM.
 - **Orchestration** *(built on kind)* — a Helm chart deploys the stack ([infra/k8s/](infra/k8s/)); kube-prometheus-stack scrapes the gateway and an HPA autoscales it on `gateway_inflight_requests` via prometheus-adapter (demonstrated scaling under load). GPU-aware HPA comes with vLLM.
 - **Model pipeline** *(built on kind)* — an Argo Workflows DAG evaluates a candidate model with the real grader regression, gates on it, and on pass records it in a model registry + rolls the backend to it (fail → notify, production untouched). See [pipeline/](pipeline/). Today the candidate is a hosted model; the same flow swaps a vLLM-served version later.
@@ -135,7 +135,7 @@ Built:
 
 Planned:
 - [x] Model pipeline — Argo Workflows eval → gate → promote (rolling update + model registry), verified pass/fail gates on kind
-- [~] vLLM serving on GPU — runbook + Grafana dashboard ready (Part A); live FP16-vs-AWQ benchmarks pending a rented GPU (Part B)
+- [x] vLLM serving on GPU — live-validated on a rented RunPod GPU: grader end-to-end on Qwen2.5-7B (structured output intact, `eval_grader` 3/3), FP16-vs-AWQ benchmarks (AWQ +15–29% QPS / −10–22% latency), vLLM `/metrics` (TTFT p50≈0.06s) into Grafana. Results in [docs/vllm-runbook.md](docs/vllm-runbook.md) §5
 
 Sequencing note: only vLLM needs a GPU, so the GPU-independent layers are built and validated on the Mac first; vLLM is added last on a rented GPU. Rationale in [docs/architecture-v2-infra.md](docs/architecture-v2-infra.md).
 
