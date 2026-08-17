@@ -29,10 +29,12 @@ from typing import TypedDict
 
 from langfuse import get_client, observe
 from langgraph.graph import END, START, StateGraph
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import speaking_grader
 from app.grader import Correction
 from app.models import Question
+from app.retrieval import build_rubric_context
 from app.speaking_grader import SpeakingGrade
 
 # Langfuse is initialised once in app.graph at import time (keys from settings).
@@ -89,6 +91,8 @@ class GraphState(TypedDict):
 
     question: Question
     transcript: str
+    # optional retrieved CEFR reference bands (RAG); None when unavailable
+    rubric_context: str | None
     # produced by `score`
     dimension_scores: dict[str, float]
     estimated_level: str
@@ -121,7 +125,9 @@ def _log_generation(name: str, usage) -> None:
 async def score_node(state: GraphState) -> dict:
     """Score the four oral dimensions + CEFR level + comment."""
     score, usage = await speaking_grader.score_speaking(
-        state["question"], state["transcript"]
+        state["question"],
+        state["transcript"],
+        rubric_context=state.get("rubric_context"),
     )
     _log_generation("score", usage)
     return {
@@ -207,12 +213,16 @@ async def run_speaking_grader(
     question: Question,
     transcript: str,
     *,
+    session: AsyncSession | None = None,
     user_id: str | None = None,
     question_id: str | None = None,
 ) -> SpeakingGrade:
     """Invoke the speaking pipeline and return the validated ``SpeakingGrade``.
 
     Wrapped in Langfuse's ``@observe`` so each grade is one top-level trace.
+    ``session`` (optional) enables scoring-reference RAG: the transcript is
+    embedded and the nearest CEFR bands are passed to the score node. It is
+    optional so the eval harness, which has no DB, calls this unchanged.
     ``user_id`` / ``question_id`` (when supplied) plus the resulting CEFR level
     are attached to the trace as business dimensions — same pattern as the
     Writing grader. Both ids are optional so the eval harness calls this
@@ -220,9 +230,20 @@ async def run_speaking_grader(
     """
     langfuse = get_client()
     start = time.perf_counter()
+    # Additive; build_rubric_context never raises, so retrieval failure just
+    # grades without context.
+    rubric_context = (
+        await build_rubric_context(session, question.exam_section, transcript)
+        if session is not None
+        else None
+    )
     try:
         final_state = await _graph.ainvoke(
-            {"question": question, "transcript": transcript}
+            {
+                "question": question,
+                "transcript": transcript,
+                "rubric_context": rubric_context,
+            }
         )
         logger.info(
             "[speak] run_speaking_grader total took %.1fs",

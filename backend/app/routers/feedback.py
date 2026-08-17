@@ -100,6 +100,7 @@ async def grade_answer(
         grade = await graph.run_grader(
             question,
             answer.content,
+            session=session,
             user_id=str(answer.user_id),
             question_id=str(answer.question_id),
         )

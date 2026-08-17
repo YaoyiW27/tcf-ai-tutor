@@ -364,14 +364,35 @@ Two accuracy fixes after reviewing Part B (no new features):
 - Next: slice 3 — embed the essay/transcript as a query, retrieve top-k, inject into `score_essay`
   (writing + speaking); grading must still work when the table is empty (RAG is additive).
 
+### Scoring-reference RAG — slice 3: retrieval into the score node
+- **Retrieval** (`app/retrieval.py`): `retrieve_rubrics` embeds the production via the gateway
+  (`embed_text`) and pulls the top-k nearest `rubric_chunks` by pgvector **cosine distance**, filtered
+  to the same `exam_section`. `format_rubric_context` renders them into a `## Reference CEFR bands`
+  block. `build_rubric_context` is the single **graceful-degradation** point — it never raises: an
+  empty table, a missing embedding key, or any failure returns `None`, so grading falls back to the
+  pre-RAG behaviour (RAG is additive).
+- **Injection into the score node only** (not find/verify): `grader.score_essay` and
+  `speaking_grader.score_speaking` gained an optional `rubric_context` appended to the task message;
+  omitting it reproduces the old call byte-for-byte. Both graphs thread `rubric_context` through
+  `GraphState`; `run_grader` / `run_speaking_grader` gained an optional `session=` that triggers
+  retrieval up front (no session → no RAG, so the eval harness calls them unchanged). The three grade
+  routers (writing feedback, speaking answer, conversation finish) pass their request `session`.
+- **Verified the pgvector query live** (throwaway `pgvector/pgvector:pg16`, dummy vectors, no API
+  cost): nearest-neighbour returns the exact-match band first, the `exam_section` filter excludes the
+  other section, and top-k is enforced. Mocked tests (`test_retrieval.py`): query construction (embeds
+  the query, cosine `<=>` order, section filter, limit), context formatting, the never-raise
+  degradation contract (success / empty / exception), and that both graders inject the block only when
+  present. Backend suite **31 passed** (was 23).
+- **RAG feature complete** across the three slices (gateway `/v1/embeddings` → pgvector store + corpus
+  → retrieval into scoring). To activate at runtime: bring the gateway up with `OPENAI_API_KEY`, run
+  `scripts.seed_rubrics`, then grade — the score node is grounded in the nearest CEFR bands.
+
 ## Next up
-- **Scoring-reference RAG — slice 3 (retrieval)**: embed the essay/transcript as a query, retrieve
-  top-k CEFR descriptors (filtered by `exam_section`), and inject them into `score_essay` (writing +
-  speaking). Slices 1 (gateway `/v1/embeddings`) and 2 (pgvector `rubric_chunks` + corpus + loader)
-  are done. Grading must still work when the table is empty — RAG is additive. Run
-  `scripts.seed_rubrics` once the gateway is up.
 - Deferred workload items: conversational Speaking **UI** (wired to `/speaking/sessions`); Whisper
   `verbose_json` → words-per-minute fluency signal.
+- Scoring-reference RAG follow-ups (optional): re-embed on descriptor edits (content hash vs
+  key-only idempotency); per-dimension descriptors (the `dimension` column already allows it); an
+  ivfflat/hnsw index if the corpus grows large.
 - Future: the **Rust gateway** A/B (`docs/rust-gateway-benchmark.md`).
 - Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for
   find_errors; or stream partial results to the UI.

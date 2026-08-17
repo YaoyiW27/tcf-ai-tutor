@@ -261,14 +261,21 @@ def _build_task_message(question: Question, content: str) -> str:
     )
 
 
-async def score_essay(question: Question, content: str) -> tuple[EssayScore, Usage]:
+async def score_essay(
+    question: Question, content: str, *, rubric_context: str | None = None
+) -> tuple[EssayScore, Usage]:
     """Score the four dimensions + CEFR level + comment. No corrections.
+
+    ``rubric_context`` (optional) is a block of retrieved CEFR reference bands
+    (see :mod:`app.retrieval`); when present it is appended to the task message so
+    scoring is grounded. It is additive — omitting it reproduces the pre-RAG call.
 
     Returns the score plus the Claude call's token usage (for tracing).
     """
-    return await _structured_call(
-        SCORE_SYSTEM, _build_task_message(question, content), EssayScore
-    )
+    message = _build_task_message(question, content)
+    if rubric_context:
+        message = f"{message}\n\n{rubric_context}"
+    return await _structured_call(SCORE_SYSTEM, message, EssayScore)
 
 
 async def find_errors(

@@ -32,11 +32,13 @@ from typing import TypedDict
 
 from langfuse import Langfuse, get_client, observe
 from langgraph.graph import END, START, StateGraph
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import grader
 from app.config import settings
 from app.grader import Correction, EssayGrade
 from app.models import Question
+from app.retrieval import build_rubric_context
 
 # Langfuse tracing for the grader. Keys live in .env, which pydantic-settings
 # loads into `settings` (not os.environ), so the SDK can't auto-discover them —
@@ -100,6 +102,8 @@ class GraphState(TypedDict):
 
     question: Question
     content: str
+    # optional retrieved CEFR reference bands (RAG); None when unavailable
+    rubric_context: str | None
     # produced by `score`
     dimension_scores: dict[str, float]
     estimated_level: str
@@ -133,7 +137,11 @@ def _log_generation(name: str, usage) -> None:
 @observe()
 async def score_node(state: GraphState) -> dict:
     """Score the four dimensions + CEFR level + comment."""
-    score, usage = await grader.score_essay(state["question"], state["content"])
+    score, usage = await grader.score_essay(
+        state["question"],
+        state["content"],
+        rubric_context=state.get("rubric_context"),
+    )
     _log_generation("score", usage)
     return {
         "dimension_scores": {
@@ -217,6 +225,7 @@ async def run_grader(
     question: Question,
     content: str,
     *,
+    session: AsyncSession | None = None,
     user_id: str | None = None,
     question_id: str | None = None,
 ) -> EssayGrade:
@@ -225,6 +234,11 @@ async def run_grader(
     Wrapped in Langfuse's ``@observe`` so each grade is one top-level trace
     (individual nodes are not instrumented yet — just this entry point).
 
+    ``session`` (optional) enables scoring-reference RAG: when supplied, the
+    essay is embedded and the nearest CEFR bands are retrieved and passed to the
+    score node. It is optional so the eval harness, which has no DB, calls this
+    unchanged and simply grades without RAG context.
+
     ``user_id`` / ``question_id`` (when supplied by the caller) plus the
     resulting CEFR level are attached to the trace as business dimensions so
     grades can be sliced per user / per question in Langfuse. Both ids are
@@ -232,8 +246,21 @@ async def run_grader(
     """
     langfuse = get_client()
     start = time.perf_counter()
+    # Retrieve reference bands up front (additive; build_rubric_context never
+    # raises, so a retrieval failure just grades without context).
+    rubric_context = (
+        await build_rubric_context(session, question.exam_section, content)
+        if session is not None
+        else None
+    )
     try:
-        final_state = await _graph.ainvoke({"question": question, "content": content})
+        final_state = await _graph.ainvoke(
+            {
+                "question": question,
+                "content": content,
+                "rubric_context": rubric_context,
+            }
+        )
         logger.info("[grade] run_grader total took %.1fs", time.perf_counter() - start)
         result: EssayGrade = final_state["result"]
         # Attach business dimensions to this trace's root observation (the span

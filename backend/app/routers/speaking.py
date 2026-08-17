@@ -166,6 +166,7 @@ async def grade_speaking_answer(
         grade = await speaking_graph.run_speaking_grader(
             question,
             answer.content,
+            session=session,
             user_id=str(answer.user_id),
             question_id=str(answer.question_id),
         )

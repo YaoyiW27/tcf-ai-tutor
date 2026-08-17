@@ -165,14 +165,21 @@ def _build_task_message(question: Question, transcript: str) -> str:
     )
 
 
-async def score_speaking(question: Question, transcript: str):
+async def score_speaking(
+    question: Question, transcript: str, *, rubric_context: str | None = None
+):
     """Score the four dimensions + CEFR level + comment. No corrections.
+
+    ``rubric_context`` (optional) is a block of retrieved CEFR reference bands
+    (see :mod:`app.retrieval`); when present it is appended to the task message so
+    scoring is grounded. Additive — omitting it reproduces the pre-RAG call.
 
     Returns ``(SpeakingScore, token usage)`` — usage for Langfuse tracing.
     """
-    return await grader._structured_call(
-        SCORE_SYSTEM, _build_task_message(question, transcript), SpeakingScore
-    )
+    message = _build_task_message(question, transcript)
+    if rubric_context:
+        message = f"{message}\n\n{rubric_context}"
+    return await grader._structured_call(SCORE_SYSTEM, message, SpeakingScore)
 
 
 async def find_errors(question: Question, transcript: str):

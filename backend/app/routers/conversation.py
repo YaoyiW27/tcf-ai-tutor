@@ -260,6 +260,7 @@ async def finish_session(
         grade = await run_speaking_grader(
             question,
             candidate_text,
+            session=session,
             user_id=str(convo.user_id),
             question_id=str(convo.question_id),
         )
