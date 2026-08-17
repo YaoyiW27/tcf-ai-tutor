@@ -365,11 +365,16 @@ Two accuracy fixes after reviewing Part B (no new features):
   (writing + speaking); grading must still work when the table is empty (RAG is additive).
 
 ## Next up
-- **vLLM serving on a rented cloud GPU** — the last, GPU-dependent layer: OpenAI-compatible vLLM behind the gateway (`INFERENCE_BACKEND=vllm`), FP16-vs-AWQ benchmarks (reuse `bench_gateway.py`), GPU metrics into Grafana, GPU-aware HPA. The `INFERENCE_MODEL` promotion flow becomes the vLLM model-version swap.
-- Future: the **Rust gateway** A/B (`docs/rust-gateway-benchmark.md`); deferred workload items (Speaking UI, WPM signal, pgvector RAG).
-- Future: the **Rust gateway** experiment (see `docs/rust-gateway-benchmark.md`).
-- Deferred workload items: conversational Speaking **UI** (wired to `/speaking/sessions`); Whisper `verbose_json` → words-per-minute fluency signal; scoring-reference RAG (pgvector).
-- Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for find_errors; or stream partial results to the UI.
+- **Scoring-reference RAG — slice 3 (retrieval)**: embed the essay/transcript as a query, retrieve
+  top-k CEFR descriptors (filtered by `exam_section`), and inject them into `score_essay` (writing +
+  speaking). Slices 1 (gateway `/v1/embeddings`) and 2 (pgvector `rubric_chunks` + corpus + loader)
+  are done. Grading must still work when the table is empty — RAG is additive. Run
+  `scripts.seed_rubrics` once the gateway is up.
+- Deferred workload items: conversational Speaking **UI** (wired to `/speaking/sessions`); Whisper
+  `verbose_json` → words-per-minute fluency signal.
+- Future: the **Rust gateway** A/B (`docs/rust-gateway-benchmark.md`).
+- Perf round 2: grading still ~19s. Ideas: trim score-node prompt/output; try a faster model for
+  find_errors; or stream partial results to the UI.
 
 ## Notes
 - Two-terminal workflow established: one for backend (uvicorn), one for everything else.
