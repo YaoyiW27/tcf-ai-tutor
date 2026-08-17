@@ -1,145 +1,5 @@
 # Dev Log
 
-## 2026-08-16
-
-### Scoring-reference RAG — slice 1: gateway embeddings endpoint
-- Kicked off the deferred **pgvector RAG** workload item (ground grading in CEFR/TCF rubric
-  descriptors). Design settled with the user: corpus = **hand-authored CEFR/TCF band descriptors**
-  (copyright-clean; exemplar-based RAG deferred), retrieval injected into the **score node**, and
-  embeddings go **through the gateway** so they're metered/observable like chat.
-- **This slice = the gateway `POST /v1/embeddings` passthrough only** (no DB / retrieval yet).
-  Always routed to **OpenAI** (`text-embedding-3-small`) regardless of `INFERENCE_BACKEND` —
-  Anthropic has no embeddings API, so the chat backend can stay `anthropic`/`vllm` while embeddings
-  stay on OpenAI. New config `OPENAI_API_KEY` / `OPENAI_BASE_URL` (independent of the forward-path
-  `UPSTREAM_*`). Request/response pass through verbatim; only usage is read for metrics.
-- **Own metric family** (`gateway_embedding_{requests_total,latency_seconds,tokens_input_total,cost_usd_total}`,
-  labelled by `model` only — no `backend`, embeddings are always OpenAI) kept separate from the chat
-  counters so the chat dashboards and the **inflight-based HPA signal stay chat-only** (embeddings
-  deliberately don't touch `gateway_inflight_requests`). Cost table gained `text-embedding-3-{small,large}`
-  (input-only pricing). Rate-limited on the same per-key bucket; 429/503/502 mapped like chat.
-- Tests (`gateway/tests/test_embeddings.py`, mocked httpx — no network): forward URL/key/body,
-  usage read-out, missing-key → RuntimeError, independence from `inference_backend`, endpoint
-  success metrics, 503/502/429 mapping, and the embedding metric-family type/label contract.
-  Gateway suite **35 passed** (was 24).
-- Next RAG slices: (2) pgvector table + Alembic migration (needs `pgvector/pgvector:pg16` image in
-  compose/K8s) + rubric-descriptor loader; (3) retrieval into `score_essay` (writing + speaking).
-
-### Scoring-reference RAG — slice 2: pgvector storage + rubric corpus + loader
-- **pgvector schema.** New `rubric_chunks` model (`app/models.py`): `(exam_section, cefr_level,
-  dimension, text, source, embedding vector(1536))`, unique on
-  `(exam_section, dimension, cefr_level, source)`. Reuses the existing `exam_section` /
-  `difficulty_level` enums. Migration `a1b2c3d4e5f6` enables the `vector` extension and creates the
-  table; the enums are referenced with `create_type=False` (they already exist) and are **not**
-  dropped on downgrade (shared with other tables); no ANN index (~12-row corpus → exact `<->` scan).
-  Added `pgvector==0.3.6`; switched the compose + K8s Postgres image to **`pgvector/pgvector:pg16`**
-  (drop-in, no official alpine tag). `embedding_model`/`embedding_dimensions` added to backend config.
-- **Corpus** (`app/rubric_corpus.py`): 12 hand-authored, copyright-clean CEFR band descriptors — one
-  holistic descriptor per `(writing|speaking) × A1..C2`, in English (they ground the English grader
-  prompt). Speaking descriptors note pronunciation is out of scope (transcript-only), matching the
-  speaking grader. `dimension="overall"` for now; the column leaves room for per-dimension chunks.
-- **Embedding helper** (`app/embeddings.py`): `embed_texts`/`embed_text` go through the gateway
-  `/v1/embeddings` (slice 1) — same chokepoint the graders use — so embeddings are metered/observable
-  and the backend holds no provider key. Response is re-sorted by `index` so order never depends on
-  the upstream. **Loader** (`scripts.seed_rubrics`, idempotent, keyed on the unique tuple) is **not**
-  in the backend entrypoint (unlike `seed_questions`) because it needs the gateway up — run manually.
-- **Verified the migration live** against a throwaway `pgvector/pgvector:pg16` container: `upgrade head`
-  built `rubric_chunks` with `embedding vector(1536)` + the unique constraint + the `vector`
-  extension; `downgrade -1` dropped the table but kept the shared enums; re-`upgrade` round-tripped.
-- Tests (mocked, no DB/gateway): `test_rubric_corpus.py` (section×level coverage, unique keys,
-  substantive text, `rubric_key` enum/string stability, `filter_new` skip-existing) +
-  `test_embeddings.py` (batch ordering by `index`, empty short-circuit, single-vector wrapper,
-  count mismatch). Backend suite **23 passed** (was 12).
-- Next: slice 3 — embed the essay/transcript as a query, retrieve top-k, inject into `score_essay`
-  (writing + speaking); grading must still work when the table is empty (RAG is additive).
-
-## 2026-08-14 (Part B follow-up — fallback correctness + doc accuracy)
-
-Two accuracy fixes after reviewing Part B (no new features):
-- **Gateway `guided_json` fallback was too eager.** `_forward_backend` retried on *any* 400 carrying a
-  json_schema, not only a "response_format unsupported" 400. During the live run, before
-  `--max-model-len` was raised, every grader call 400'd on context length — and every one carried a
-  json_schema, so each was silently sent **twice** (double spend on a metered GPU), and
-  `raise_for_status()` surfaced the *second* (guided_json-rewritten) response, masking the real
-  max-model-len cause. Fix: retry only when the 400 body names `response_format`
-  (`_is_response_format_error`); memoize the verdict per upstream (`_rejects_response_format`) so a
-  genuinely-old vLLM costs **one probe**, not a retry per request. `upstream_seconds` is now re-timed on
-  the retry (the returned call), not the probe+retry sum — the old sum inflated upstream time and
-  understated `gateway_overhead_seconds` (the signature A/B metric). Tests (`test_forward_fallback.py`,
-  now 4): a non-`response_format` 400 must **not** retry (+ nothing memoized), and the reject verdict is
-  cached so it probes once. Extended `mock_upstream.py` with a context-length reject mode. Gateway suite
-  **24 passed**.
-- **Runbook §5 / dev-log claims tightened to match what was actually measured:** corrected "the
-  `guided_json` fallback never fired" (it did, on every max-model-len 400); named the eval model
-  (**FP16**, before the AWQ redeploy) and framed `eval_grader 3/3` as a *pipeline* check (3 assertions
-  vs a non-deterministic model), not a grading-quality result; **the FP16-vs-AWQ quality delta was not
-  measured** (AWQ eval skipped to spin the GPU down) — recorded as performance-only; added scope notes
-  that `max_completion_tokens=256` but the model emitted ~28–42 tokens (measures TTFT + short decode,
-  not sustained generation) and that n=100 single-run p95/p99 rest on ~5/~1 samples (indicative, not
-  stable tails).
-
-## 2026-08-14 (Part B — live vLLM on a rented GPU)
-
-### vLLM capstone — Part B (live validation, GPU up then down)
-- Rented a **RunPod** GPU running the **vLLM OpenAI template** (not raw Docker) serving
-  `Qwen/Qwen2.5-7B-Instruct`, reachable via a public HTTPS proxy. Gateway wired via gitignored
-  `gateway/.env` (`INFERENCE_BACKEND=vllm` + `UPSTREAM_BASE_URL`/`UPSTREAM_API_KEY`); confirmed the
-  three gateway var names against `config.py` (`INFERENCE_MODEL` there is inert — it's a **backend**
-  setting; the bench passes `--model` and the grader eval takes it as an env override).
-- **Live blocker found + fixed (config, not code):** the grader's `_structured_call` caps completions
-  at `max_tokens=8000` (tuned for Claude's 200k window; workload stays backend-agnostic), but vLLM
-  counts `prompt + max_completion_tokens` against `--max-model-len`, so the runbook's **`8192` window
-  400'd every grader call** (`8000 + prompt > 8192`). Root-caused by adding a temp upstream-body log to
-  `_forward_backend` (reverted) — the 400 was a context-length error, not schema/`reasoning_effort`
-  (both verified fine directly). Chose to **raise the window** (redeploy at `--max-model-len 16384`,
-  Qwen supports 32768) over shrinking the workload cap — keeps Claude the quality backend and the
-  workload identical across backends. Fixed the runbook (`8192 → 16384` + a note on why).
-- **Structured output:** this vLLM (0.27.1) accepts OpenAI **`response_format` json_schema natively**
-  (200). The `guided_json` fallback didn't fire on the successful runs — but the earlier
-  `--max-model-len 8192` 400s each *did* trip it, because the then-current gateway retried on any
-  json_schema 400 (fixed the next day — see the follow-up entry). **`eval_grader` 3/3 passed
-  end-to-end against the FP16 model** through the gateway (eval ran before the AWQ redeploy; polite
-  imparfait not flagged, agreement error caught, weak answer not over-scored). This is a *pipeline*
-  check, not a quality measure — grading quality trails Claude as expected (verify_errors dropped a
-  real `des pomme`/gender error on one probe).
-- **FP16-vs-AWQ benchmark** (n=100 × concurrency 1,4,8,16, e2e via the RunPod proxy): **AWQ-4bit is a
-  straight win — +15–29% QPS, −10–22% p50/p95, +20–28% tok/s, 0 errors** at every level. vLLM
-  continuous batching shows as **QPS scaling ~linearly 1→16 with ~flat p50**. Saved
-  `benchmarks/results/vllm-{fp16,awq}-*.json`; `compare_results.py` for the table.
-- **Authoritative serving metrics** from vLLM `/metrics`: TTFT **p50=0.06 / p95=0.08 / p99=0.10s**
-  (`vllm:time_to_first_token_seconds`); serving e2e p50≈1.0s ≈ client p50, so **the RunPod proxy adds
-  negligible RTT** — the ~1s is real single-stream decode (~38 tok/s), not network. Stood up the
-  observability stack pointed at the RunPod `/metrics` (`scheme: https`, unauthenticated): Prometheus
-  target **up**, dashboard PromQL (`histogram_quantile` over the TTFT buckets) resolved live under a
-  warm-up burst, **vLLM Serving** Grafana dashboard rendered. Torn down; reverted the temp
-  `prometheus.yml` target (kept the commented template, improved with an https/RunPod hint) so nothing
-  ephemeral is committed. Full FP16-vs-AWQ table + observations in `docs/vllm-runbook.md §5`.
-- **The GPU-dependent layer is now validated live; GPU to be spun down.** With this, the whole stack
-  (gateway → observability → containers → K8s+autoscaling → Argo → vLLM serving) has run end-to-end.
-
-## 2026-08-14 (later)
-
-### vLLM capstone — Part A (GPU-free prep, tested)
-- Decisions: self-host **Qwen2.5-7B-Instruct** on vLLM on a **raw GPU box** (user runs Docker, shares URL+key); gateway routes to it via the existing `vllm` forward path (config only, no gateway code). Scope: serving + gateway + **FP16-vs-AWQ** benchmarks + vLLM `/metrics` → Grafana; in-cluster GPU-aware HPA deferred (kind is on the Mac).
-- Landed GPU-free + CI-testable: `docs/vllm-runbook.md` (vLLM launch FP16/AWQ, gateway wiring, structured-output note + `guided_json` fallback, bench + compare procedure); a **vLLM Grafana dashboard** (`infra/observability/grafana/dashboards/vllm.json`: TTFT p50/95/99, e2e latency, gen throughput, KV-cache, running/waiting) + a commented vLLM scrape job in `prometheus.yml`; `gateway/.env.example` vLLM notes. Tests: `test_vllm_dashboard_contract.py` (valid JSON + references the `vllm:*` metrics) — gateway suite 20 passed. Reuses `INFERENCE_MODEL` (Argo slice) + `bench_gateway.py --label` / `compare_results.py`.
-- **Part A.2 — hardened before renting (GPU-free):** built the `response_format → guided_json` fallback **in the gateway** (`_forward_backend`: on a 400 with a json_schema response_format, retry once with vLLM's top-level `guided_json`), symmetric with `_anthropic_backend`'s `output_config` translation — the grader stays backend-agnostic (unchanged). Extended `mock_upstream.py` with a `MOCK_REJECT_RESPONSE_FORMAT` mode + `last_request` recording; added `gateway/tests/test_forward_fallback.py` (in-process via ASGITransport — asserts the fallback body carries `guided_json`/no `response_format` and still returns a completion; and no-retry when accepted). Gateway suite 22 passed; break-verify confirmed real; live HTTP smoke (gateway→reject-mode mock) returned 200 via the fallback. Fixed the runbook: client bench = **e2e latency with the network in the path** (Mac→SSH tunnel→GPU), authoritative **TTFT from `vllm:time_to_first_token_seconds`** (not the client). Confirmed AWQ id `Qwen/Qwen2.5-7B-Instruct-AWQ`; key stays in gitignored `gateway/.env` (no paste).
-- **Part B (pending a live GPU):** launch vLLM, wire gateway, verify structured output + one grader eval end-to-end, run FP16-vs-AWQ benchmarks, confirm vLLM metrics in Grafana; record numbers. A 7B model's grading quality will trail Claude (expected — may trip the Argo gate).
-
-### CI — GitHub Actions
-- `.github/workflows/ci.yml` runs on push (main) + PRs: a `tests` matrix job (`gateway`, `backend`) that installs `requirements-dev.txt` and runs `pytest` per service (no DB/services — everything's mocked; backend conftest sets a dummy `DATABASE_URL`), plus an `infra-validate` job (`helm lint`/`template` the chart + `docker compose config`). Operationalizes the tests-as-DoD rule. CI badge in the README.
-
-### Testing regime — tests are Definition of Done (project rule)
-- **Rule (now in CLAUDE.md):** every slice that writes or changes code ships with tests in the
-  **same** slice — a feature without a passing test isn't done; don't backfill later. Future plans
-  must include that slice's tests.
-- **Principles:** pytest (`gateway/tests/`, `backend/tests/`); **mock all external deps** (LLM
-  APIs, DB, network) — fast, free, deterministic, **never** a real LLM call. Test our own logic
-  (parsing, routing, rate-limiting, scoring, gate decisions), not model quality or third-party libs.
-  Clear test names; high-value critical-path tests over coverage padding. `pyproject.toml` holds the
-  pytest config so `pytest` runs the whole suite per service.
-- Backfilling three key layers in review-gated steps: (1) gateway metric contract (guards the
-  `/metrics` names/labels vs the Grafana PromQL), (2) gateway logic (rate limit, backend routing,
-  error handling), (3) grader/eval logic (score parsing, gate decisions).
-
 ## 2026-05-19
 - Initial repo, README, LICENSE, .gitignore
 - Resolved divergent histories (GitHub auto-init vs local init)
@@ -363,6 +223,146 @@ Two accuracy fixes after reviewing Part B (no new features):
   - **Fail** (`candidate-model=not-a-real-model`): `eval` Failed fast (bad model errors, ~no Claude cost) → `promote` **Omitted** → `notify-fail` ran → registry stayed `[]`, backend model unchanged. Gate rejected cleanly.
   - **Pass** (`candidate-model=claude-sonnet-4-6`): real grader regression passed (~2 min) → `promote` ran → registry gained the entry → backend Deployment rolled to `INFERENCE_MODEL=claude-sonnet-4-6`.
 - Gotcha: `.status.nodes` is a map (not a list) — jsonpath `range` over it errors; iterate the values instead. **The entire GPU-free infra stack is now built** (gateway → observability → containers → K8s+autoscaling → Argo pipeline).
+
+## 2026-08-14 (later)
+
+### vLLM capstone — Part A (GPU-free prep, tested)
+- Decisions: self-host **Qwen2.5-7B-Instruct** on vLLM on a **raw GPU box** (user runs Docker, shares URL+key); gateway routes to it via the existing `vllm` forward path (config only, no gateway code). Scope: serving + gateway + **FP16-vs-AWQ** benchmarks + vLLM `/metrics` → Grafana; in-cluster GPU-aware HPA deferred (kind is on the Mac).
+- Landed GPU-free + CI-testable: `docs/vllm-runbook.md` (vLLM launch FP16/AWQ, gateway wiring, structured-output note + `guided_json` fallback, bench + compare procedure); a **vLLM Grafana dashboard** (`infra/observability/grafana/dashboards/vllm.json`: TTFT p50/95/99, e2e latency, gen throughput, KV-cache, running/waiting) + a commented vLLM scrape job in `prometheus.yml`; `gateway/.env.example` vLLM notes. Tests: `test_vllm_dashboard_contract.py` (valid JSON + references the `vllm:*` metrics) — gateway suite 20 passed. Reuses `INFERENCE_MODEL` (Argo slice) + `bench_gateway.py --label` / `compare_results.py`.
+- **Part A.2 — hardened before renting (GPU-free):** built the `response_format → guided_json` fallback **in the gateway** (`_forward_backend`: on a 400 with a json_schema response_format, retry once with vLLM's top-level `guided_json`), symmetric with `_anthropic_backend`'s `output_config` translation — the grader stays backend-agnostic (unchanged). Extended `mock_upstream.py` with a `MOCK_REJECT_RESPONSE_FORMAT` mode + `last_request` recording; added `gateway/tests/test_forward_fallback.py` (in-process via ASGITransport — asserts the fallback body carries `guided_json`/no `response_format` and still returns a completion; and no-retry when accepted). Gateway suite 22 passed; break-verify confirmed real; live HTTP smoke (gateway→reject-mode mock) returned 200 via the fallback. Fixed the runbook: client bench = **e2e latency with the network in the path** (Mac→SSH tunnel→GPU), authoritative **TTFT from `vllm:time_to_first_token_seconds`** (not the client). Confirmed AWQ id `Qwen/Qwen2.5-7B-Instruct-AWQ`; key stays in gitignored `gateway/.env` (no paste).
+- **Part B (pending a live GPU):** launch vLLM, wire gateway, verify structured output + one grader eval end-to-end, run FP16-vs-AWQ benchmarks, confirm vLLM metrics in Grafana; record numbers. A 7B model's grading quality will trail Claude (expected — may trip the Argo gate).
+
+### CI — GitHub Actions
+- `.github/workflows/ci.yml` runs on push (main) + PRs: a `tests` matrix job (`gateway`, `backend`) that installs `requirements-dev.txt` and runs `pytest` per service (no DB/services — everything's mocked; backend conftest sets a dummy `DATABASE_URL`), plus an `infra-validate` job (`helm lint`/`template` the chart + `docker compose config`). Operationalizes the tests-as-DoD rule. CI badge in the README.
+
+### Testing regime — tests are Definition of Done (project rule)
+- **Rule (now in CLAUDE.md):** every slice that writes or changes code ships with tests in the
+  **same** slice — a feature without a passing test isn't done; don't backfill later. Future plans
+  must include that slice's tests.
+- **Principles:** pytest (`gateway/tests/`, `backend/tests/`); **mock all external deps** (LLM
+  APIs, DB, network) — fast, free, deterministic, **never** a real LLM call. Test our own logic
+  (parsing, routing, rate-limiting, scoring, gate decisions), not model quality or third-party libs.
+  Clear test names; high-value critical-path tests over coverage padding. `pyproject.toml` holds the
+  pytest config so `pytest` runs the whole suite per service.
+- Backfilling three key layers in review-gated steps: (1) gateway metric contract (guards the
+  `/metrics` names/labels vs the Grafana PromQL), (2) gateway logic (rate limit, backend routing,
+  error handling), (3) grader/eval logic (score parsing, gate decisions).
+
+## 2026-08-14 (Part B — live vLLM on a rented GPU)
+
+### vLLM capstone — Part B (live validation, GPU up then down)
+- Rented a **RunPod** GPU running the **vLLM OpenAI template** (not raw Docker) serving
+  `Qwen/Qwen2.5-7B-Instruct`, reachable via a public HTTPS proxy. Gateway wired via gitignored
+  `gateway/.env` (`INFERENCE_BACKEND=vllm` + `UPSTREAM_BASE_URL`/`UPSTREAM_API_KEY`); confirmed the
+  three gateway var names against `config.py` (`INFERENCE_MODEL` there is inert — it's a **backend**
+  setting; the bench passes `--model` and the grader eval takes it as an env override).
+- **Live blocker found + fixed (config, not code):** the grader's `_structured_call` caps completions
+  at `max_tokens=8000` (tuned for Claude's 200k window; workload stays backend-agnostic), but vLLM
+  counts `prompt + max_completion_tokens` against `--max-model-len`, so the runbook's **`8192` window
+  400'd every grader call** (`8000 + prompt > 8192`). Root-caused by adding a temp upstream-body log to
+  `_forward_backend` (reverted) — the 400 was a context-length error, not schema/`reasoning_effort`
+  (both verified fine directly). Chose to **raise the window** (redeploy at `--max-model-len 16384`,
+  Qwen supports 32768) over shrinking the workload cap — keeps Claude the quality backend and the
+  workload identical across backends. Fixed the runbook (`8192 → 16384` + a note on why).
+- **Structured output:** this vLLM (0.27.1) accepts OpenAI **`response_format` json_schema natively**
+  (200). The `guided_json` fallback didn't fire on the successful runs — but the earlier
+  `--max-model-len 8192` 400s each *did* trip it, because the then-current gateway retried on any
+  json_schema 400 (fixed the next day — see the follow-up entry). **`eval_grader` 3/3 passed
+  end-to-end against the FP16 model** through the gateway (eval ran before the AWQ redeploy; polite
+  imparfait not flagged, agreement error caught, weak answer not over-scored). This is a *pipeline*
+  check, not a quality measure — grading quality trails Claude as expected (verify_errors dropped a
+  real `des pomme`/gender error on one probe).
+- **FP16-vs-AWQ benchmark** (n=100 × concurrency 1,4,8,16, e2e via the RunPod proxy): **AWQ-4bit is a
+  straight win — +15–29% QPS, −10–22% p50/p95, +20–28% tok/s, 0 errors** at every level. vLLM
+  continuous batching shows as **QPS scaling ~linearly 1→16 with ~flat p50**. Saved
+  `benchmarks/results/vllm-{fp16,awq}-*.json`; `compare_results.py` for the table.
+- **Authoritative serving metrics** from vLLM `/metrics`: TTFT **p50=0.06 / p95=0.08 / p99=0.10s**
+  (`vllm:time_to_first_token_seconds`); serving e2e p50≈1.0s ≈ client p50, so **the RunPod proxy adds
+  negligible RTT** — the ~1s is real single-stream decode (~38 tok/s), not network. Stood up the
+  observability stack pointed at the RunPod `/metrics` (`scheme: https`, unauthenticated): Prometheus
+  target **up**, dashboard PromQL (`histogram_quantile` over the TTFT buckets) resolved live under a
+  warm-up burst, **vLLM Serving** Grafana dashboard rendered. Torn down; reverted the temp
+  `prometheus.yml` target (kept the commented template, improved with an https/RunPod hint) so nothing
+  ephemeral is committed. Full FP16-vs-AWQ table + observations in `docs/vllm-runbook.md §5`.
+- **The GPU-dependent layer is now validated live; GPU to be spun down.** With this, the whole stack
+  (gateway → observability → containers → K8s+autoscaling → Argo → vLLM serving) has run end-to-end.
+
+## 2026-08-14 (Part B follow-up — fallback correctness + doc accuracy)
+
+Two accuracy fixes after reviewing Part B (no new features):
+- **Gateway `guided_json` fallback was too eager.** `_forward_backend` retried on *any* 400 carrying a
+  json_schema, not only a "response_format unsupported" 400. During the live run, before
+  `--max-model-len` was raised, every grader call 400'd on context length — and every one carried a
+  json_schema, so each was silently sent **twice** (double spend on a metered GPU), and
+  `raise_for_status()` surfaced the *second* (guided_json-rewritten) response, masking the real
+  max-model-len cause. Fix: retry only when the 400 body names `response_format`
+  (`_is_response_format_error`); memoize the verdict per upstream (`_rejects_response_format`) so a
+  genuinely-old vLLM costs **one probe**, not a retry per request. `upstream_seconds` is now re-timed on
+  the retry (the returned call), not the probe+retry sum — the old sum inflated upstream time and
+  understated `gateway_overhead_seconds` (the signature A/B metric). Tests (`test_forward_fallback.py`,
+  now 4): a non-`response_format` 400 must **not** retry (+ nothing memoized), and the reject verdict is
+  cached so it probes once. Extended `mock_upstream.py` with a context-length reject mode. Gateway suite
+  **24 passed**.
+- **Runbook §5 / dev-log claims tightened to match what was actually measured:** corrected "the
+  `guided_json` fallback never fired" (it did, on every max-model-len 400); named the eval model
+  (**FP16**, before the AWQ redeploy) and framed `eval_grader 3/3` as a *pipeline* check (3 assertions
+  vs a non-deterministic model), not a grading-quality result; **the FP16-vs-AWQ quality delta was not
+  measured** (AWQ eval skipped to spin the GPU down) — recorded as performance-only; added scope notes
+  that `max_completion_tokens=256` but the model emitted ~28–42 tokens (measures TTFT + short decode,
+  not sustained generation) and that n=100 single-run p95/p99 rest on ~5/~1 samples (indicative, not
+  stable tails).
+
+## 2026-08-16
+
+### Scoring-reference RAG — slice 1: gateway embeddings endpoint
+- Kicked off the deferred **pgvector RAG** workload item (ground grading in CEFR/TCF rubric
+  descriptors). Design settled with the user: corpus = **hand-authored CEFR/TCF band descriptors**
+  (copyright-clean; exemplar-based RAG deferred), retrieval injected into the **score node**, and
+  embeddings go **through the gateway** so they're metered/observable like chat.
+- **This slice = the gateway `POST /v1/embeddings` passthrough only** (no DB / retrieval yet).
+  Always routed to **OpenAI** (`text-embedding-3-small`) regardless of `INFERENCE_BACKEND` —
+  Anthropic has no embeddings API, so the chat backend can stay `anthropic`/`vllm` while embeddings
+  stay on OpenAI. New config `OPENAI_API_KEY` / `OPENAI_BASE_URL` (independent of the forward-path
+  `UPSTREAM_*`). Request/response pass through verbatim; only usage is read for metrics.
+- **Own metric family** (`gateway_embedding_{requests_total,latency_seconds,tokens_input_total,cost_usd_total}`,
+  labelled by `model` only — no `backend`, embeddings are always OpenAI) kept separate from the chat
+  counters so the chat dashboards and the **inflight-based HPA signal stay chat-only** (embeddings
+  deliberately don't touch `gateway_inflight_requests`). Cost table gained `text-embedding-3-{small,large}`
+  (input-only pricing). Rate-limited on the same per-key bucket; 429/503/502 mapped like chat.
+- Tests (`gateway/tests/test_embeddings.py`, mocked httpx — no network): forward URL/key/body,
+  usage read-out, missing-key → RuntimeError, independence from `inference_backend`, endpoint
+  success metrics, 503/502/429 mapping, and the embedding metric-family type/label contract.
+  Gateway suite **35 passed** (was 24).
+- Next RAG slices: (2) pgvector table + Alembic migration (needs `pgvector/pgvector:pg16` image in
+  compose/K8s) + rubric-descriptor loader; (3) retrieval into `score_essay` (writing + speaking).
+
+### Scoring-reference RAG — slice 2: pgvector storage + rubric corpus + loader
+- **pgvector schema.** New `rubric_chunks` model (`app/models.py`): `(exam_section, cefr_level,
+  dimension, text, source, embedding vector(1536))`, unique on
+  `(exam_section, dimension, cefr_level, source)`. Reuses the existing `exam_section` /
+  `difficulty_level` enums. Migration `a1b2c3d4e5f6` enables the `vector` extension and creates the
+  table; the enums are referenced with `create_type=False` (they already exist) and are **not**
+  dropped on downgrade (shared with other tables); no ANN index (~12-row corpus → exact `<->` scan).
+  Added `pgvector==0.3.6`; switched the compose + K8s Postgres image to **`pgvector/pgvector:pg16`**
+  (drop-in, no official alpine tag). `embedding_model`/`embedding_dimensions` added to backend config.
+- **Corpus** (`app/rubric_corpus.py`): 12 hand-authored, copyright-clean CEFR band descriptors — one
+  holistic descriptor per `(writing|speaking) × A1..C2`, in English (they ground the English grader
+  prompt). Speaking descriptors note pronunciation is out of scope (transcript-only), matching the
+  speaking grader. `dimension="overall"` for now; the column leaves room for per-dimension chunks.
+- **Embedding helper** (`app/embeddings.py`): `embed_texts`/`embed_text` go through the gateway
+  `/v1/embeddings` (slice 1) — same chokepoint the graders use — so embeddings are metered/observable
+  and the backend holds no provider key. Response is re-sorted by `index` so order never depends on
+  the upstream. **Loader** (`scripts.seed_rubrics`, idempotent, keyed on the unique tuple) is **not**
+  in the backend entrypoint (unlike `seed_questions`) because it needs the gateway up — run manually.
+- **Verified the migration live** against a throwaway `pgvector/pgvector:pg16` container: `upgrade head`
+  built `rubric_chunks` with `embedding vector(1536)` + the unique constraint + the `vector`
+  extension; `downgrade -1` dropped the table but kept the shared enums; re-`upgrade` round-tripped.
+- Tests (mocked, no DB/gateway): `test_rubric_corpus.py` (section×level coverage, unique keys,
+  substantive text, `rubric_key` enum/string stability, `filter_new` skip-existing) +
+  `test_embeddings.py` (batch ordering by `index`, empty short-circuit, single-vector wrapper,
+  count mismatch). Backend suite **23 passed** (was 12).
+- Next: slice 3 — embed the essay/transcript as a query, retrieve top-k, inject into `score_essay`
+  (writing + speaking); grading must still work when the table is empty (RAG is additive).
 
 ## Next up
 - **vLLM serving on a rented cloud GPU** — the last, GPU-dependent layer: OpenAI-compatible vLLM behind the gateway (`INFERENCE_BACKEND=vllm`), FP16-vs-AWQ benchmarks (reuse `bench_gateway.py`), GPU metrics into Grafana, GPU-aware HPA. The `INFERENCE_MODEL` promotion flow becomes the vLLM model-version swap.
