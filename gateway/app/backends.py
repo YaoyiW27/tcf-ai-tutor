@@ -209,6 +209,31 @@ async def _forward_backend(body: dict) -> tuple[dict, int, int, float]:
     )
 
 
+async def embeddings(body: dict) -> tuple[dict, int, float]:
+    """Forward an embeddings request to OpenAI.
+
+    Returns ``(response, input_tokens, upstream_seconds)``. Embeddings always go
+    to OpenAI regardless of ``inference_backend`` — Anthropic has no embeddings
+    API — so the chat backend can be anthropic/vllm while embeddings stay on
+    OpenAI. The request/response bodies are OpenAI-shaped and pass through
+    verbatim; only usage is read out for metrics.
+    """
+    if settings.openai_api_key is None:
+        raise RuntimeError("OPENAI_API_KEY is not set")
+    base = settings.openai_base_url.rstrip("/")
+    url = f"{base}/embeddings"
+    headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        upstream_start = time.perf_counter()
+        resp = await client.post(url, json=body, headers=headers)
+        upstream_seconds = time.perf_counter() - upstream_start
+        resp.raise_for_status()
+        data = resp.json()
+    usage = data.get("usage") or {}
+    return data, int(usage.get("prompt_tokens", 0)), upstream_seconds
+
+
 async def handle(body: dict) -> tuple[dict, int, int, float]:
     """Route a chat-completions request to the configured backend.
 

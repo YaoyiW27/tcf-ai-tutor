@@ -2,7 +2,9 @@
 
 Routes ``POST /v1/chat/completions`` to the configured model backend (see
 ``app.backends``), applies per-key rate limiting, and records Prometheus metrics
-(requests, latency, tokens, cost) exposed at ``GET /metrics``.
+(requests, latency, tokens, cost) exposed at ``GET /metrics``. ``POST
+/v1/embeddings`` is an OpenAI-compatible passthrough (always routed to OpenAI)
+for the RAG workload, metered on its own metric family.
 """
 
 import time
@@ -81,4 +83,47 @@ async def chat_completions(request: Request) -> Response:
     metrics.COST_USD.labels(backend, model).inc(
         cost.cost_usd(model, input_tokens, output_tokens)
     )
+    return JSONResponse(content=resp)
+
+
+@app.post("/v1/embeddings")
+async def embeddings(request: Request) -> Response:
+    """OpenAI-compatible embeddings passthrough (always routed to OpenAI).
+
+    Metered/rate-limited like chat so RAG embedding calls are visible on the
+    dashboard. Kept on its own metric family and deliberately outside the chat
+    inflight gauge (which drives the HPA) so the autoscale signal stays chat-only.
+    """
+    key = request.headers.get("authorization", "anon")
+    if not ratelimit.allow(key):
+        metrics.EMBED_REQUESTS.labels("unknown", "429").inc()
+        return JSONResponse(
+            status_code=429,
+            content={"error": {"message": "rate limit exceeded", "type": "rate_limit_error"}},
+        )
+
+    body = await request.json()
+    model = body.get("model", "unknown")
+
+    started = time.perf_counter()
+    try:
+        resp, input_tokens, _upstream_seconds = await backends.embeddings(body)
+    except RuntimeError as exc:  # missing key / misconfiguration
+        metrics.EMBED_REQUESTS.labels(model, "503").inc()
+        return JSONResponse(
+            status_code=503,
+            content={"error": {"message": str(exc), "type": "configuration_error"}},
+        )
+    except (anthropic.APIError, httpx.HTTPError) as exc:  # upstream failure
+        metrics.EMBED_REQUESTS.labels(model, "502").inc()
+        return JSONResponse(
+            status_code=502,
+            content={"error": {"message": str(exc), "type": "upstream_error"}},
+        )
+    finally:
+        metrics.EMBED_LATENCY.labels(model).observe(time.perf_counter() - started)
+
+    metrics.EMBED_REQUESTS.labels(model, "200").inc()
+    metrics.EMBED_TOKENS.labels(model).inc(input_tokens)
+    metrics.EMBED_COST_USD.labels(model).inc(cost.cost_usd(model, input_tokens, 0))
     return JSONResponse(content=resp)

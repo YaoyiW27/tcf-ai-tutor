@@ -1,5 +1,29 @@
 # Dev Log
 
+## 2026-08-16
+
+### Scoring-reference RAG — slice 1: gateway embeddings endpoint
+- Kicked off the deferred **pgvector RAG** workload item (ground grading in CEFR/TCF rubric
+  descriptors). Design settled with the user: corpus = **hand-authored CEFR/TCF band descriptors**
+  (copyright-clean; exemplar-based RAG deferred), retrieval injected into the **score node**, and
+  embeddings go **through the gateway** so they're metered/observable like chat.
+- **This slice = the gateway `POST /v1/embeddings` passthrough only** (no DB / retrieval yet).
+  Always routed to **OpenAI** (`text-embedding-3-small`) regardless of `INFERENCE_BACKEND` —
+  Anthropic has no embeddings API, so the chat backend can stay `anthropic`/`vllm` while embeddings
+  stay on OpenAI. New config `OPENAI_API_KEY` / `OPENAI_BASE_URL` (independent of the forward-path
+  `UPSTREAM_*`). Request/response pass through verbatim; only usage is read for metrics.
+- **Own metric family** (`gateway_embedding_{requests_total,latency_seconds,tokens_input_total,cost_usd_total}`,
+  labelled by `model` only — no `backend`, embeddings are always OpenAI) kept separate from the chat
+  counters so the chat dashboards and the **inflight-based HPA signal stay chat-only** (embeddings
+  deliberately don't touch `gateway_inflight_requests`). Cost table gained `text-embedding-3-{small,large}`
+  (input-only pricing). Rate-limited on the same per-key bucket; 429/503/502 mapped like chat.
+- Tests (`gateway/tests/test_embeddings.py`, mocked httpx — no network): forward URL/key/body,
+  usage read-out, missing-key → RuntimeError, independence from `inference_backend`, endpoint
+  success metrics, 503/502/429 mapping, and the embedding metric-family type/label contract.
+  Gateway suite **35 passed** (was 24).
+- Next RAG slices: (2) pgvector table + Alembic migration (needs `pgvector/pgvector:pg16` image in
+  compose/K8s) + rubric-descriptor loader; (3) retrieval into `score_essay` (writing + speaking).
+
 ## 2026-08-14 (Part B follow-up — fallback correctness + doc accuracy)
 
 Two accuracy fixes after reviewing Part B (no new features):

@@ -10,6 +10,9 @@ PRICES: dict[str, tuple[float, float]] = {
     "claude-opus-4-8": (15.0, 75.0),
     "claude-haiku-4-5": (1.0, 5.0),
     "gpt-4o-mini": (0.15, 0.60),
+    # Embeddings: input-only (no completion tokens), so output price is 0.
+    "text-embedding-3-small": (0.02, 0.0),
+    "text-embedding-3-large": (0.13, 0.0),
 }
 
 

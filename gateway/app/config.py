@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     upstream_base_url: str | None = None  # e.g. https://api.openai.com/v1 or the vLLM URL
     upstream_api_key: str | None = None
 
+    # embeddings passthrough — always OpenAI (Anthropic has no embeddings API), so
+    # it is independent of inference_backend: the chat backend can be anthropic or
+    # vllm while embeddings stay on OpenAI. Kept metered/observable like chat.
+    openai_api_key: str | None = None
+    openai_base_url: str = "https://api.openai.com/v1"
+
     # per-key token-bucket rate limiting
     rate_limit_per_min: float = 120.0
     rate_limit_burst: int = 20
