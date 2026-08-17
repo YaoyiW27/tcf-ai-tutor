@@ -12,7 +12,9 @@ images:
     pullPolicy: IfNotPresent
 
 postgres:
-  image: postgres:16-alpine
+  # pgvector-enabled Postgres 16 (drop-in for postgres:16; ships the `vector`
+  # extension the rubric_chunks RAG migration enables). No official alpine tag.
+  image: pgvector/pgvector:pg16
   user: tcf_app
   db: tcf_ai_tutor
   storage: 1Gi

@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     # directly (the gateway does). Safe to leave set in .env.
     anthropic_api_key: str | None = None
 
+    # Scoring-reference RAG: the embedding model requested from the gateway's
+    # /v1/embeddings passthrough (always OpenAI-served) and its vector dimension.
+    # The dimension must match the `Vector(...)` column in app.models.RubricChunk
+    # and the migration; changing the model means a new migration + re-seed.
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
+
     # OpenAI API key, used only for Whisper speech-to-text on the Speaking path
     # (POST /speaking/answers). Read here for the same reason as
     # ANTHROPIC_API_KEY above (pydantic-settings loads .env into this object,

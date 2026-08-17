@@ -16,9 +16,12 @@ from sqlalchemy import (
     Text,
     func,
 )
+from sqlalchemy import UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
 
+from app.config import settings
 from app.db import Base
 
 
@@ -130,6 +133,7 @@ class Answer(Base):
 
     user: Mapped["User"] = relationship(back_populates="answers")
     question: Mapped["Question"] = relationship(back_populates="answers")
+
     feedback: Mapped["AIFeedback | None"] = relationship(
         back_populates="answer", cascade="all, delete-orphan", uselist=False
     )
@@ -194,4 +198,51 @@ class SpeakingSession(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+
+class RubricChunk(Base):
+    """A scoring-reference descriptor embedded for retrieval (pgvector).
+
+    Grounds grading in CEFR/TCF band descriptors: at grade time the essay (or
+    spoken transcript) is embedded and the nearest chunks are retrieved and
+    injected into the score node's prompt, so level placement is anchored to
+    reference material rather than the model's unaided judgement.
+
+    The initial corpus is one holistic descriptor per ``(exam_section,
+    cefr_level)`` with ``dimension='overall'``; the ``dimension`` column leaves
+    room for per-dimension chunks later without a migration. ``embedding`` is a
+    ``text-embedding-3-small`` vector (see ``settings.embedding_dimensions``);
+    the column dimension is fixed at migration time, so changing the embedding
+    model means a new migration + re-seed. Idempotency (see
+    ``scripts.seed_rubrics``) is keyed on ``(exam_section, dimension,
+    cefr_level, source)``, enforced by a unique constraint.
+    """
+
+    __tablename__ = "rubric_chunks"
+    __table_args__ = (
+        UniqueConstraint(
+            "exam_section",
+            "dimension",
+            "cefr_level",
+            "source",
+            name="uq_rubric_chunk_key",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    exam_section: Mapped[ExamSection] = mapped_column(
+        SAEnum(ExamSection, name="exam_section"), nullable=False
+    )
+    cefr_level: Mapped[DifficultyLevel] = mapped_column(
+        SAEnum(DifficultyLevel, name="difficulty_level"), nullable=False
+    )
+    dimension: Mapped[str] = mapped_column(Text, nullable=False, default="overall")
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(
+        Vector(settings.embedding_dimensions), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
     )

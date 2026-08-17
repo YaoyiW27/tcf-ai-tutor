@@ -24,6 +24,34 @@
 - Next RAG slices: (2) pgvector table + Alembic migration (needs `pgvector/pgvector:pg16` image in
   compose/K8s) + rubric-descriptor loader; (3) retrieval into `score_essay` (writing + speaking).
 
+### Scoring-reference RAG — slice 2: pgvector storage + rubric corpus + loader
+- **pgvector schema.** New `rubric_chunks` model (`app/models.py`): `(exam_section, cefr_level,
+  dimension, text, source, embedding vector(1536))`, unique on
+  `(exam_section, dimension, cefr_level, source)`. Reuses the existing `exam_section` /
+  `difficulty_level` enums. Migration `a1b2c3d4e5f6` enables the `vector` extension and creates the
+  table; the enums are referenced with `create_type=False` (they already exist) and are **not**
+  dropped on downgrade (shared with other tables); no ANN index (~12-row corpus → exact `<->` scan).
+  Added `pgvector==0.3.6`; switched the compose + K8s Postgres image to **`pgvector/pgvector:pg16`**
+  (drop-in, no official alpine tag). `embedding_model`/`embedding_dimensions` added to backend config.
+- **Corpus** (`app/rubric_corpus.py`): 12 hand-authored, copyright-clean CEFR band descriptors — one
+  holistic descriptor per `(writing|speaking) × A1..C2`, in English (they ground the English grader
+  prompt). Speaking descriptors note pronunciation is out of scope (transcript-only), matching the
+  speaking grader. `dimension="overall"` for now; the column leaves room for per-dimension chunks.
+- **Embedding helper** (`app/embeddings.py`): `embed_texts`/`embed_text` go through the gateway
+  `/v1/embeddings` (slice 1) — same chokepoint the graders use — so embeddings are metered/observable
+  and the backend holds no provider key. Response is re-sorted by `index` so order never depends on
+  the upstream. **Loader** (`scripts.seed_rubrics`, idempotent, keyed on the unique tuple) is **not**
+  in the backend entrypoint (unlike `seed_questions`) because it needs the gateway up — run manually.
+- **Verified the migration live** against a throwaway `pgvector/pgvector:pg16` container: `upgrade head`
+  built `rubric_chunks` with `embedding vector(1536)` + the unique constraint + the `vector`
+  extension; `downgrade -1` dropped the table but kept the shared enums; re-`upgrade` round-tripped.
+- Tests (mocked, no DB/gateway): `test_rubric_corpus.py` (section×level coverage, unique keys,
+  substantive text, `rubric_key` enum/string stability, `filter_new` skip-existing) +
+  `test_embeddings.py` (batch ordering by `index`, empty short-circuit, single-vector wrapper,
+  count mismatch). Backend suite **23 passed** (was 12).
+- Next: slice 3 — embed the essay/transcript as a query, retrieve top-k, inject into `score_essay`
+  (writing + speaking); grading must still work when the table is empty (RAG is additive).
+
 ## 2026-08-14 (Part B follow-up — fallback correctness + doc accuracy)
 
 Two accuracy fixes after reviewing Part B (no new features):

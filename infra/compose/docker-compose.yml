@@ -6,7 +6,9 @@ name: tcf-stack
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector-enabled Postgres 16 (drop-in for postgres:16, ships the `vector`
+    # extension the rubric_chunks RAG migration enables). No official alpine tag.
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: tcf_app
       POSTGRES_DB: tcf_ai_tutor

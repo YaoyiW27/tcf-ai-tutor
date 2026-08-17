@@ -37,6 +37,7 @@ python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 alembic upgrade head                     # migrations
 python -m scripts.seed_questions         # seed sample TCF questions (idempotent)
+python -m scripts.seed_rubrics           # seed CEFR rubric RAG corpus (needs gateway up; idempotent)
 uvicorn app.main:app --reload --port 8000
 python -m scripts.eval_grader            # writing grader regression eval (real Claude calls)
 python -m scripts.eval_speaking_grader   # speaking grader eval (transcript-based)
