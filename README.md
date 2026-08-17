@@ -10,21 +10,36 @@ The tutor workload runs end-to-end today against the Anthropic and OpenAI APIs. 
 
 ## Architecture
 
-```
-Application — TCF tutor (FastAPI + LangGraph graders + Next.js UI)   built
-        │
-Inference gateway (routing · token/cost accounting ·                 built
-  rate limiting · /metrics)
-        │
-Model serving — vLLM, OpenAI-compatible                              built (rented GPU)
-  (continuous batching · KV cache · AWQ/GPTQ)
-        │
-Observability — Prometheus + Grafana                                 built (gateway)
-  (QPS · P50/95/99 · overhead · tokens · cost; GPU panels w/ vLLM)
-        │
-Orchestration — Kubernetes (kind) · Helm · HPA                       built (kind)
-        │
-Model pipeline — Argo Workflows · model registry                     built
+Solid arrows are the request path; dashed arrows are the observability and
+control planes, which observe and reconfigure that path rather than sit in it.
+Everything shown is built — Kubernetes and Argo on a local kind cluster, vLLM on
+a rented GPU.
+
+```mermaid
+flowchart TB
+  UI["Next.js UI"] --> API["FastAPI backend<br/>LangGraph graders · voice examiner"]
+  API --> GW["Inference gateway<br/>backend switch · tokens + cost · rate limit · /metrics"]
+  API --> PG[("PostgreSQL + pgvector<br/>answers · sessions · rubric_chunks")]
+  API --> STT["OpenAI Whisper + TTS"]
+  GW --> ANT["Anthropic API"]
+  GW --> VLLM["vLLM · Qwen2.5-7B-Instruct<br/>rented GPU · FP16 / AWQ-4bit"]
+
+  subgraph obs["Observability"]
+    PROM["Prometheus"] --> GRAF["Grafana"]
+    LF["Langfuse"]
+  end
+
+  subgraph ctl["Control plane · Kubernetes"]
+    ADAPTER["prometheus-adapter + HPA"]
+    ARGO["Argo Workflows<br/>eval → gate → promote"]
+  end
+
+  GW -. scraped .-> PROM
+  VLLM -. scraped .-> PROM
+  API -. traces .-> LF
+  PROM -. gateway_inflight_requests .-> ADAPTER
+  ADAPTER -. scales .-> GW
+  ARGO -. sets INFERENCE_MODEL .-> API
 ```
 
 ## Components
