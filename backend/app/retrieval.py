@@ -1,10 +1,17 @@
 """Scoring-reference retrieval for the RAG grading path.
 
 At grade time the candidate's production (essay or transcript) is embedded and
-the nearest CEFR band descriptors — filtered to the same ``exam_section`` — are
-pulled from ``rubric_chunks`` (pgvector, cosine distance) and formatted into a
-block that the score node injects into its prompt, so level placement is anchored
-to reference bands.
+CEFR band descriptors — filtered to the same ``exam_section`` — are pulled from
+``rubric_chunks`` (pgvector, cosine distance) and formatted into a block that the
+score node injects into its prompt, so level placement is anchored to reference
+bands.
+
+**At the default ``k`` this orders rather than selects.** ``DEFAULT_K`` is the
+length of the CEFR ladder and the corpus holds one descriptor per level per
+section, so every band comes back and cosine distance only decides their order.
+That is deliberate, and measured — see the note on ``DEFAULT_K`` below. Treat the
+kNN query as the mechanism that will do the selecting once the corpus is big
+enough to have something to leave out.
 
 RAG is **additive**: :func:`build_rubric_context` never raises. An empty table, a
 missing embedding key, or any retrieval failure degrades to ``None`` (grade
