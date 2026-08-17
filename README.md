@@ -127,6 +127,7 @@ Open **http://localhost:3000** — the home page fetches and renders the questio
 
 Built:
 - [x] Tutor workload — writing grader (LangGraph multi-node), speaking grader, turn-based voice examiner, Langfuse tracing, Next.js UI
+- [x] Scoring-reference RAG — CEFR band descriptors embedded through the gateway's `/v1/embeddings` (OpenAI) into pgvector (`rubric_chunks`); the score node retrieves the nearest bands (cosine, `exam_section`-filtered) to ground writing + speaking grading. Additive — grading falls back to the pre-RAG path when the store is empty or embeddings are unavailable
 - [x] Inference gateway — `INFERENCE_BACKEND` switch, token/cost accounting, per-process rate limiting (single-replica scope), Prometheus `/metrics`; workload migrated to it (evals green through the gateway)
 - [x] Observability — Prometheus + Grafana dashboards scraping the gateway; reusable benchmark harness (mock upstream + concurrency sweep) faceted by `impl` for an A/B (see [docs/rust-gateway-benchmark.md](docs/rust-gateway-benchmark.md))
 - [x] Containerized stack — Dockerfiles (gateway + backend) + one-command `docker compose` (Postgres + gateway + backend + Prometheus + Grafana); see [infra/compose/](infra/compose/)
