@@ -385,7 +385,22 @@ Two accuracy fixes after reviewing Part B (no new features):
   present. Backend suite **31 passed** (was 23).
 - **RAG feature complete** across the three slices (gateway `/v1/embeddings` → pgvector store + corpus
   → retrieval into scoring). To activate at runtime: bring the gateway up with `OPENAI_API_KEY`, run
-  `scripts.seed_rubrics`, then grade — the score node is grounded in the nearest CEFR bands.
+  `scripts.seed_rubrics`, then grade — the score node is grounded in the CEFR bands.
+
+### Scoring-reference RAG — slice 3 follow-up: live validation + full-ladder fix
+- **Live end-to-end run** (throwaway `pgvector/pgvector:pg16`, gateway forced to `anthropic` since the
+  vLLM GPU is down, real OpenAI + Claude keys via env override — no `.env` edits): `seed_rubrics`
+  embedded all 12 chunks through the gateway (`gateway_embedding_requests_total{text-embedding-3-small}`
+  recorded — the new endpoint is observable), idempotent re-run skipped cleanly, and two contrasting
+  essays graded end-to-end through the gateway with `rubric_context` populated (weak→A1, strong→B1).
+- **Finding + fix:** top-3 kNN returned the **same low bands `[A2,A1,B1]` for both essays** — an
+  English descriptor vs a French production makes cosine similarity track "about writing assessment",
+  not proficiency, so over a 6-band corpus kNN doesn't discriminate. Fix (user's call): **inject the
+  full per-section ladder** — `retrieval.DEFAULT_K = len(DifficultyLevel)`, so all six A1–C2 bands go
+  to the score node; cosine ordering is kept only as a nearest-first hint. Re-verified live: both
+  essays now receive all six bands. kNN starts to matter again once the corpus grows (exemplars /
+  per-dimension chunks), where the default would be raised. Added `test_default_k_covers_the_full_cefr_ladder`;
+  backend suite **32 passed**. Prompt wording updated ("reference bands for this section, nearest first").
 
 ## Next up
 - Deferred workload items: conversational Speaking **UI** (wired to `/speaking/sessions`); Whisper

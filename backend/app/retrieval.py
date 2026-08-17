@@ -17,11 +17,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.embeddings import embed_text
-from app.models import ExamSection, RubricChunk
+from app.models import DifficultyLevel, ExamSection, RubricChunk
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_K = 3
+# Inject the full per-section CEFR ladder (one descriptor per level), not a
+# nearest-few subset. With a tiny corpus (6 bands/section) and an English
+# descriptor vs a French production, cosine kNN doesn't discriminate by
+# proficiency — it returns the same low bands for any essay — so top-3 grounding
+# was uniform and unhelpful. Giving the score node the whole ladder lets it place
+# the production against the full scale; the cosine ordering is kept only as a
+# nearest-first hint. kNN starts to matter again once the corpus grows (exemplars
+# or per-dimension chunks), where this default would be raised.
+DEFAULT_K = len(DifficultyLevel)
 
 
 async def retrieve_rubrics(
@@ -55,10 +63,10 @@ def format_rubric_context(chunks: list[RubricChunk]) -> str | None:
     lines = "\n".join(f"- [{chunk.cefr_level.value}] {chunk.text}" for chunk in chunks)
     return (
         "## Reference CEFR bands\n"
-        "The descriptors below are the reference bands closest to this "
-        "production. Use them to anchor your CEFR level estimate and dimension "
-        "scores — they are guidance, not a substitute for judging the actual "
-        "text.\n"
+        "The descriptors below are the reference bands for this section (nearest "
+        "to the production first). Place the production on this ladder to anchor "
+        "your CEFR level estimate and dimension scores — they are guidance, not a "
+        "substitute for judging the actual text.\n"
         f"{lines}"
     )
 

@@ -72,6 +72,12 @@ async def test_retrieve_rubrics_embeds_query_and_builds_nearest_neighbour_query(
 # ---- format_rubric_context -------------------------------------------------
 
 
+def test_default_k_covers_the_full_cefr_ladder():
+    # Grounding injects every level (one descriptor per level), not a nearest few,
+    # so retrieval doesn't collapse to the same low bands for every essay.
+    assert retrieval.DEFAULT_K == len(DifficultyLevel)
+
+
 def test_format_rubric_context_empty_is_none():
     assert retrieval.format_rubric_context([]) is None
 
