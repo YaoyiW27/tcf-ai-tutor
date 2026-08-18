@@ -27,8 +27,8 @@ allowances.
 
 ## 1. Neon
 
-Create a project and copy the connection string. **Two edits are required** or
-the backend will not connect:
+Create a project, then get the connection string into the shape asyncpg accepts
+— it will not connect otherwise.
 
 First turn **Connection pooling off** in the connect dialog. Neon's pooler is
 PgBouncer in transaction mode, and asyncpg leans on prepared statements — the
@@ -44,8 +44,7 @@ user needs no pooler.
 Drop the whole query string and write `?ssl=require`: both `sslmode` and
 `channel_binding` are libpq spellings that asyncpg rejects outright.
 
-`sslmode` is libpq's spelling; asyncpg does not accept it and the driver errors
-out rather than falling back. Enable the extension once:
+Then enable the extension once, in the SQL Editor:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
