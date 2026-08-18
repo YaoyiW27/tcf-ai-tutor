@@ -1,0 +1,37 @@
+# Inference gateway on Fly. Deploy this before the backend: the backend reaches
+# it over Fly's private network, and rubric seeding on backend boot embeds
+# through it.
+#
+#   fly launch --no-deploy --copy-config --name tcf-gateway
+#   fly secrets set ANTHROPIC_API_KEY=... OPENAI_API_KEY=...
+#   fly deploy
+
+app = "tcf-gateway"
+primary_region = "sea"   # Seattle — nearest region to Vancouver
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  INFERENCE_BACKEND = "anthropic"
+
+[http_service]
+  internal_port = 8001
+  force_https = true
+  # Scale to zero when idle. This is a personal tool with one user; paying for
+  # an idle machine is the wrong trade. Cold start is a few seconds.
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

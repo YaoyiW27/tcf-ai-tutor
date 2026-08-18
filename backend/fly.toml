@@ -1,0 +1,48 @@
+# TCF tutor backend on Fly. Deploy after the gateway — GATEWAY_URL points at it
+# over Fly's private network, and boot-time rubric seeding embeds through it.
+#
+#   fly launch --no-deploy --copy-config --name tcf-backend
+#   fly secrets set DATABASE_URL=... API_KEY=... OPENAI_API_KEY=...
+#   fly deploy
+#
+# DATABASE_URL is the Neon string with two edits: the driver must be
+# postgresql+asyncpg://, and Neon's ?sslmode=require must become ?ssl=require —
+# asyncpg does not understand libpq's sslmode and will refuse to connect.
+
+app = "tcf-backend"
+primary_region = "sea"   # Seattle — nearest region to Vancouver
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # Fly's private network: no public hop, and the gateway needs no public
+  # exposure for the backend to reach it.
+  GATEWAY_URL = "http://tcf-gateway.internal:8001"
+  INFERENCE_MODEL = "claude-sonnet-4-6"
+  # The browser never calls this directly — the frontend proxies server-side —
+  # so no deployed origin belongs here.
+  CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    # Boot runs migrations plus two seed scripts before uvicorn binds, so the
+    # first check has to wait longer than a plain web app would.
+    grace_period = "45s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[[vm]]
+  # Grading holds a request for ~20s while several model calls run; memory
+  # rather than CPU is the constraint, and 512mb has been enough locally.
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
