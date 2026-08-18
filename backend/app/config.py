@@ -24,6 +24,18 @@ class Settings(BaseSettings):
 
     database_url: str
 
+    # Comma-separated browser origins allowed to call this API directly. The
+    # deployed frontend calls its own server-side proxy instead, so this only
+    # needs the local dev origins unless a browser on another host talks to the
+    # API directly.
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+
+    # Shared secret required on every request except /health. Unset — the local
+    # default — means no auth at all, which is fine on a laptop and is exactly
+    # what must not ship: anyone who finds a public URL would spend your model
+    # credits. Startup logs a warning when it is unset.
+    api_key: str | None = None
+
     # Inference gateway base URL. All text-LLM calls (graders + examiner) go
     # through the gateway (see app.grader), which holds the provider keys and
     # routes to the configured backend (default Claude). STT/TTS still call
