@@ -71,7 +71,7 @@ fly apps create tcf-gateway
 fly ips allocate-v6 --private -a tcf-gateway
 fly ips list -a tcf-gateway     # private ingress only — no v4, no public v6
 fly secrets set ANTHROPIC_API_KEY=sk-ant-… OPENAI_API_KEY=sk-…
-fly deploy
+fly deploy --ha=false           # one machine; HA doubles cost for one user
 fly logs                        # expect: Uvicorn running on http://0.0.0.0:8001
 ```
 
@@ -91,7 +91,7 @@ fly secrets set \
   DATABASE_URL='postgresql+asyncpg://…?ssl=require' \
   API_KEY='<the generated secret>' \
   OPENAI_API_KEY=sk-…
-fly deploy
+fly deploy --ha=false
 ```
 
 Boot runs `alembic upgrade head`, seeds questions, then seeds rubrics. The

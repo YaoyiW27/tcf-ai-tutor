@@ -14,7 +14,9 @@
 # Check with `fly ips list -a tcf-gateway`: private ingress only.
 
 app = "tcf-gateway"
-primary_region = "sea"   # Seattle — nearest region to Vancouver
+primary_region = "sjc"   # San Jose — sea (Seattle) is deprecated and
+                         # refuses new machines; sjc is the closest remaining
+                         # region to both Vancouver and Neon in us-west-2
 
 [build]
   dockerfile = "Dockerfile"
