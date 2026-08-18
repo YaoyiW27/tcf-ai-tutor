@@ -2,9 +2,16 @@
 # it over Fly's private network, and rubric seeding on backend boot embeds
 # through it.
 #
-#   fly launch --no-deploy --copy-config --name tcf-gateway
+#   fly apps create tcf-gateway
+#   fly ips allocate-v6 --private -a tcf-gateway   # private ingress, no public IP
 #   fly secrets set ANTHROPIC_API_KEY=... OPENAI_API_KEY=...
 #   fly deploy
+#
+# NO PUBLIC IP, deliberately. This service holds the Anthropic key and has no
+# authentication of its own — reachable from the internet it is a free Claude
+# proxy for whoever finds it. The private ingress address gives the backend a
+# route through Fly's proxy (so auto-start still works) without exposing it.
+# Check with `fly ips list -a tcf-gateway`: private ingress only.
 
 app = "tcf-gateway"
 primary_region = "sea"   # Seattle — nearest region to Vancouver

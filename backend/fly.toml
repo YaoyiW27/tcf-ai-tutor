@@ -16,9 +16,13 @@ primary_region = "sea"   # Seattle — nearest region to Vancouver
   dockerfile = "Dockerfile"
 
 [env]
-  # Fly's private network: no public hop, and the gateway needs no public
-  # exposure for the backend to reach it.
-  GATEWAY_URL = "http://tcf-gateway.internal:8001"
+  # .flycast, not .internal. The gateway holds the Anthropic key and has no auth
+  # of its own, so it gets no public IP — but .internal resolves straight to the
+  # machine and bypasses Fly's proxy, which is what implements auto-start. A
+  # stopped gateway would then simply refuse the connection. A private ingress
+  # address (fly ips allocate-v6 --private) routes through the proxy instead, so
+  # the gateway stays off the public internet and still wakes on demand.
+  GATEWAY_URL = "http://tcf-gateway.flycast:8001"
   INFERENCE_MODEL = "claude-sonnet-4-6"
   # The browser never calls this directly — the frontend proxies server-side —
   # so no deployed origin belongs here.

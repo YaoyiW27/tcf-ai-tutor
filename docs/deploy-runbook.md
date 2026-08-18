@@ -30,10 +30,19 @@ allowances.
 Create a project and copy the connection string. **Two edits are required** or
 the backend will not connect:
 
+First turn **Connection pooling off** in the connect dialog. Neon's pooler is
+PgBouncer in transaction mode, and asyncpg leans on prepared statements — the
+pair fails with `prepared statement "__asyncpg_stmt_1__" already exists`. One
+user needs no pooler.
+
 | Neon gives you | Use |
 |---|---|
 | `postgresql://…` | `postgresql+asyncpg://…` |
-| `?sslmode=require` | `?ssl=require` |
+| `…-pooler.…` host | the host without `-pooler` (pooling off) |
+| `?sslmode=require&channel_binding=require` | `?ssl=require` |
+
+Drop the whole query string and write `?ssl=require`: both `sslmode` and
+`channel_binding` are libpq spellings that asyncpg rejects outright.
 
 `sslmode` is libpq's spelling; asyncpg does not accept it and the driver errors
 out rather than falling back. Enable the extension once:
@@ -50,12 +59,21 @@ before the `rubric_chunks` migration runs.
 The backend reaches it over the private network on boot, so it has to exist
 first.
 
+The gateway gets **no public IP**. It holds the Anthropic key and has no
+authentication of its own, so anyone who reached it would have a free Claude
+proxy. A private ingress address routes the backend to it through Fly's proxy —
+which matters, because `.internal` resolves straight to the machine and skips
+the proxy that implements auto-start, so a stopped gateway would just refuse the
+connection.
+
 ```bash
 cd gateway
-fly launch --no-deploy --copy-config --name tcf-gateway
+fly apps create tcf-gateway
+fly ips allocate-v6 --private -a tcf-gateway
+fly ips list -a tcf-gateway     # private ingress only — no v4, no public v6
 fly secrets set ANTHROPIC_API_KEY=sk-ant-… OPENAI_API_KEY=sk-…
 fly deploy
-fly logs        # expect: Uvicorn running on http://0.0.0.0:8001
+fly logs                        # expect: Uvicorn running on http://0.0.0.0:8001
 ```
 
 ## 3. Backend
@@ -69,7 +87,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ```bash
 cd backend
-fly launch --no-deploy --copy-config --name tcf-backend
+fly apps create tcf-backend
 fly secrets set \
   DATABASE_URL='postgresql+asyncpg://…?ssl=require' \
   API_KEY='<the generated secret>' \
