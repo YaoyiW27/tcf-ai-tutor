@@ -1,13 +1,16 @@
 /**
  * Minimal API client for the TCF AI Tutor backend.
  *
- * Base URL comes from NEXT_PUBLIC_API_URL (inlined at build time, so it must
- * be prefixed NEXT_PUBLIC_ to reach the browser); falls back to the local
- * backend default.
+ * Calls default to this app's own `/api/backend` proxy, which adds the
+ * backend's shared secret server-side (see `app/api/backend/[...path]/route.ts`).
+ * That keeps the secret out of the browser bundle — anything `NEXT_PUBLIC_` is
+ * public — and lets the same build run locally and deployed.
+ *
+ * NEXT_PUBLIC_API_URL still overrides it, for pointing a local frontend
+ * straight at a local backend and skipping the hop.
  */
 
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "/api/backend";
 
 /** Exam section a question belongs to (matches backend ExamSection enum). */
 export type ExamSection = "writing" | "speaking" | "listening" | "reading";
