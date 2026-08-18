@@ -115,6 +115,12 @@ On Vercel, set the project root to `frontend/` and add:
 |---|---|
 | `BACKEND_URL` | `https://tcf-backend.fly.dev` |
 | `BACKEND_API_KEY` | the same secret as the backend's `API_KEY` |
+| `APP_PASSWORD` | a password gating the whole site |
+
+`APP_PASSWORD` is not optional if the URL is going anywhere public. The backend
+key stops direct calls, but the proxy attaches it to whatever reaches the
+frontend — so without this the site is an open tab on your Anthropic and OpenAI
+accounts, at several thinking-enabled model calls per graded essay.
 
 Neither is `NEXT_PUBLIC_`, and neither should ever be: that prefix inlines a
 value into the browser bundle. Do **not** set `NEXT_PUBLIC_API_URL` in

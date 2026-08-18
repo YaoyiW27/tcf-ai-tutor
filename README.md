@@ -2,6 +2,17 @@
 
 [![CI](https://github.com/YaoyiW27/tcf-ai-tutor/actions/workflows/ci.yml/badge.svg)](https://github.com/YaoyiW27/tcf-ai-tutor/actions/workflows/ci.yml)
 
+**Live:** <https://tcf-ai-tutor.vercel.app> — password-gated. Grading is several
+model calls with extended thinking per essay, so an open URL would be an open
+tab on my Anthropic and OpenAI accounts; ask if you want the password.
+
+Deployed: Vercel (Next.js + a server-side proxy that holds the backend key) →
+Fly.io (FastAPI backend, and the gateway with no public IP at all) → Neon
+Postgres with pgvector. Kubernetes, Argo, Prometheus/Grafana and vLLM stay
+local — see [docs/deploy-runbook.md](docs/deploy-runbook.md) for why, and for
+the Neon/Fly specifics that cost the most time. Writing and speaking work end to
+end; listening and reading are not built.
+
 An inference gateway — request routing, token and cost accounting, rate limiting, and Prometheus metrics — sits in front of an open-weight LLM served by vLLM. The stack runs on Kubernetes with Prometheus/Grafana monitoring and an Argo Workflows pipeline that evaluates candidate models and rolls them out when they beat the current baseline. The workload it serves is a TCF Canada French-exam tutor: LangGraph writing and speaking graders and a turn-based voice examiner.
 
 Text generation sits behind an `INFERENCE_BACKEND` switch (`anthropic` | `openai` | `vllm`), so the workload runs unchanged against a hosted API or the self-hosted model. Speech-to-text (Whisper) and text-to-speech run on OpenAI. Each serving configuration is benchmarked — TTFT, tokens/sec, P50/95/99 latency, QPS, cost per request.
