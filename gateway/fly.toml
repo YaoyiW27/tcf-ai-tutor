@@ -25,8 +25,13 @@ primary_region = "sjc"   # San Jose — sea (Seattle) is deprecated and
   INFERENCE_BACKEND = "anthropic"
 
 [http_service]
+  # The proxy listens on 80/443 and forwards here; 8001 is not itself a service
+  # port, so callers use tcf-gateway.flycast (port 80), not :8001.
   internal_port = 8001
-  force_https = true
+  # No public IP and every caller is on Fly's private network, so an HTTPS
+  # redirect only adds a hop — and TLS to a .flycast name would fail hostname
+  # verification anyway, since the certificate is for tcf-gateway.fly.dev.
+  force_https = false
   # Scale to zero when idle. This is a personal tool with one user; paying for
   # an idle machine is the wrong trade. Cold start is a few seconds.
   auto_stop_machines = "suspend"

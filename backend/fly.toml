@@ -24,7 +24,10 @@ primary_region = "sjc"   # San Jose — sea (Seattle) is deprecated and
   # stopped gateway would then simply refuse the connection. A private ingress
   # address (fly ips allocate-v6 --private) routes through the proxy instead, so
   # the gateway stays off the public internet and still wakes on demand.
-  GATEWAY_URL = "http://tcf-gateway.flycast:8001"
+  # Port 80, not 8001: Fly's proxy listens on the service port and forwards to
+  # the container's internal_port. Connecting to :8001 through flycast reaches
+  # no listener and the proxy resets it.
+  GATEWAY_URL = "http://tcf-gateway.flycast"
   INFERENCE_MODEL = "claude-sonnet-4-6"
   # The browser never calls this directly — the frontend proxies server-side —
   # so no deployed origin belongs here.
